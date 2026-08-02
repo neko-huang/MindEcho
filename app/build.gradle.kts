@@ -2,6 +2,7 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    id("com.google.devtools.ksp")
 }
 
 android {
@@ -80,8 +81,7 @@ dependencies {
     // Room Database
     implementation("androidx.room:room-runtime:2.6.1")
     implementation("androidx.room:room-ktx:2.6.1")
-    annotationProcessor("androidx.room:room-compiler:2.6.1")
-    // KSP would be preferred but annotationProcessor keeps it simpler for now
+    ksp("androidx.room:room-compiler:2.6.1")
 
     // Retrofit + OkHttp (networking for Whisper/LLM APIs)
     implementation("com.squareup.retrofit2:retrofit:2.9.0")
