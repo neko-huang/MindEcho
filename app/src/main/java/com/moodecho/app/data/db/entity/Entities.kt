@@ -1,0 +1,96 @@
+package com.moodecho.app.data.db.entity
+
+import androidx.room.ColumnInfo
+import androidx.room.Entity
+import androidx.room.ForeignKey
+import androidx.room.Index
+import androidx.room.PrimaryKey
+import com.moodecho.app.domain.model.EmotionType
+
+/**
+ * Represents a single recording session.
+ * Tracks the full lifecycle: recording → processing → completed.
+ */
+@Entity(tableName = "recording_sessions")
+data class RecordingSession(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val title: String,
+    val startTime: Long,          // epoch millis
+    val endTime: Long? = null,    // epoch millis, null while recording
+    val duration: Long = 0,       // duration in milliseconds
+    val audioFilePath: String,    // path to saved audio file
+    val status: SessionStatus = SessionStatus.RECORDING
+)
+
+/**
+ * Status of a recording session.
+ */
+enum class SessionStatus {
+    RECORDING,
+    PROCESSING,
+    COMPLETED
+}
+
+/**
+ * A single transcript entry within a recording session.
+ * Linked to a session via foreign key.
+ */
+@Entity(
+    tableName = "transcript_entries",
+    foreignKeys = [
+        ForeignKey(
+            entity = RecordingSession::class,
+            parentColumns = ["id"],
+            childColumns = ["sessionId"],
+            onDelete = ForeignKey.CASCADE
+        )
+    ],
+    indices = [Index("sessionId")]
+)
+data class TranscriptEntry(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val sessionId: Long,
+    val startTime: Long,    // offset from session start in millis
+    val endTime: Long,      // offset from session start in millis
+    val text: String
+)
+
+/**
+ * A single emotion data point within a recording session.
+ * Produced by the EmotionAnalyzer every analysis window (e.g., every 5 seconds).
+ */
+@Entity(
+    tableName = "emotion_data_points",
+    foreignKeys = [
+        ForeignKey(
+            entity = RecordingSession::class,
+            parentColumns = ["id"],
+            childColumns = ["sessionId"],
+            onDelete = ForeignKey.CASCADE
+        )
+    ],
+    indices = [Index("sessionId")]
+)
+data class EmotionDataPoint(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val sessionId: Long,
+    val timestamp: Long,                    // offset from session start in millis
+    val emotionType: EmotionType,
+    val confidence: Float,                  // 0.0 ~ 1.0
+    val arousal: Float,                     // arousal value (energy level)
+    val valence: Float                      // valence value (positive/negative)
+)
+
+/**
+ * A daily report summarizing emotion patterns across sessions.
+ */
+@Entity(tableName = "daily_reports")
+data class DailyReport(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val date: String,                       // format: "yyyy-MM-dd"
+    @ColumnInfo(name = "sessionIdList") val sessionIdList: String, // comma-separated session IDs
+    val summary: String,                    // LLM-generated or rule-based summary
+    val suggestions: String,                // LLM-generated or rule-based suggestions
+    val overallMood: EmotionType,           // dominant mood of the day
+    val createdAt: Long                     // epoch millis
+)

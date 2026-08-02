@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Base application theme (API 31+) -->
+    <style name="Theme.MindEcho" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:statusBarColor">@color/mindecho_background</item>
+        <item name="android:navigationBarColor">@color/mindecho_background</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+</resources>

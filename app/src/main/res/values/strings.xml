@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">MindEcho</string>
+    <string name="app_description">Emotion-aware voice recorder for daily conversations</string>
+
+    <!-- Navigation -->
+    <string name="nav_home">Home</string>
+    <string name="nav_history">History</string>
+    <string name="nav_settings">Settings</string>
+
+    <!-- Home Screen -->
+    <string name="home_title">MindEcho</string>
+    <string name="home_mood_question">How are you feeling today?</string>
+    <string name="home_start_hint">Start a recording to track your emotions</string>
+    <string name="home_record_button">Start Recording</string>
+    <string name="home_recent_sessions">Recent Sessions</string>
+    <string name="home_no_sessions">No recordings yet. Start your first session!</string>
+
+    <!-- Recording Screen -->
+    <string name="recording_status_recording">Recording…</string>
+    <string name="recording_status_paused">Paused</string>
+    <string name="recording_status_ready">Ready</string>
+    <string name="recording_stop">Stop Recording</string>
+    <string name="recording_pause">Pause</string>
+    <string name="recording_resume">Resume</string>
+    <string name="recording_detected_emotion">Detected Emotion</string>
+    <string name="recording_hint_stop">Tap stop to finish recording</string>
+
+    <!-- History Screen -->
+    <string name="history_title">History</string>
+    <string name="history_no_sessions">No recordings yet</string>
+    <string name="history_hint_start">Start your first recording from the Home tab</string>
+
+    <!-- Session Detail Screen -->
+    <string name="session_detail_title">Session Detail</string>
+    <string name="session_emotion_timeline">Emotion Timeline</string>
+    <string name="session_transcript">Transcript</string>
+    <string name="session_summary">Summary</string>
+    <string name="session_no_emotion_data">Emotion data will appear here after analysis</string>
+    <string name="session_no_transcript">Transcript will appear here after processing.</string>
+    <string name="session_no_summary">AI-generated summary will appear here when available.</string>
+
+    <!-- Report Screen -->
+    <string name="report_title">Daily Report</string>
+    <string name="report_overall_mood">Overall Mood</string>
+    <string name="report_emotion_distribution">Emotion Distribution</string>
+    <string name="report_suggestions">Suggestions</string>
+    <string name="report_sessions">Sessions</string>
+
+    <!-- Settings Screen -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_api_section">API Configuration</string>
+    <string name="settings_api_description">Optional. Configure an API key to enable cloud-based transcription and summaries.</string>
+    <string name="settings_api_key_label">OpenAI API Key</string>
+    <string name="settings_api_key_placeholder">sk-…</string>
+    <string name="settings_api_base_url_label">API Base URL</string>
+    <string name="settings_api_base_url_default">https://api.openai.com/</string>
+    <string name="settings_cloud_processing">Cloud Processing</string>
+    <string name="settings_cloud_processing_desc">Send audio to API for transcription and summaries</string>
+    <string name="settings_auto_transcribe">Auto-Transcribe</string>
+    <string name="settings_auto_transcribe_desc">Automatically transcribe recordings after completion</string>
+    <string name="settings_auto_emotion">Auto Emotion Analysis</string>
+    <string name="settings_auto_emotion_desc">Analyze emotions from audio features after recording</string>
+
+    <!-- Privacy -->
+    <string name="privacy_title">Privacy Statement</string>
+    <string name="privacy_point_1">MindEcho 重视您的隐私。所有录音数据默认仅存储在您的设备上。</string>
+    <string name="privacy_point_2">只有在您主动配置了云端API密钥后，部分音频才会发送到云端进行处理。</string>
+    <string name="privacy_point_3">我们不会收集、上传或分享您的任何个人数据。</string>
+    <string name="privacy_point_4">您可以随时删除所有数据。</string>
+
+    <!-- About -->
+    <string name="about_title">About</string>
+    <string name="about_version">Version 1.0.0</string>
+    <string name="about_description">An emotion-aware voice recorder that helps you understand the emotional patterns in your daily conversations.</string>
+
+    <!-- Notification -->
+    <string name="notification_channel_name">Recording</string>
+    <string name="notification_channel_description">Shows when recording is in progress</string>
+    <string name="notification_recording">MindEcho is recording…</string>
+    <string name="notification_stop">Stop</string>
+
+    <!-- Permissions -->
+    <string name="permission_microphone_required">Microphone permission is required for recording</string>
+    <string name="permission_notification_required">Notification permission is required for background recording</string>
+
+    <!-- General -->
+    <string name="button_ok">OK</string>
+    <string name="button_cancel">Cancel</string>
+    <string name="button_delete">Delete</string>
+    <string name="button_save">Save</string>
+    <string name="error_generic">Something went wrong. Please try again.</string>
+</resources>

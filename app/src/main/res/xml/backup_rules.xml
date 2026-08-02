@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Backup rules for Android Auto Backup -->
+<full-backup-content>
+    <!-- Exclude recordings from auto backup (they can be large) -->
+    <exclude domain="file" path="recordings/" />
+    <!-- Exclude API keys from backup -->
+    <exclude domain="sharedpref" path="mindecho_prefs.preferences_pb" />
+</full-backup-content>
