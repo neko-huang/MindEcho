@@ -23,9 +23,9 @@ object Constants {
     const val RECORDING_NOTIFICATION_ID = 1
 
     // ---- API ----
-    const val DEFAULT_API_BASE_URL = "https://api.openai.com/"
-    const val WHISPER_MODEL = "whisper-1"
-    const val LLM_MODEL = "gpt-3.5-turbo"
+    const val DEFAULT_API_BASE_URL = "https://api.deepseek.com/"
+    const val WHISPER_MODEL = "whisper-1"  // OpenAI Whisper (not available on DeepSeek; requires separate OpenAI key)
+    const val LLM_MODEL = "deepseek-chat"
 
     // ---- File Storage ----
     const val RECORDINGS_DIR = "recordings"

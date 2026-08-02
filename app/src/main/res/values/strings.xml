@@ -50,13 +50,13 @@
     <!-- Settings Screen -->
     <string name="settings_title">Settings</string>
     <string name="settings_api_section">API Configuration</string>
-    <string name="settings_api_description">Optional. Configure an API key to enable cloud-based transcription and summaries.</string>
-    <string name="settings_api_key_label">OpenAI API Key</string>
+    <string name="settings_api_description">Optional. Configure a DeepSeek API key to enable cloud-based summaries and report generation.</string>
+    <string name="settings_api_key_label">DeepSeek API Key</string>
     <string name="settings_api_key_placeholder">sk-…</string>
     <string name="settings_api_base_url_label">API Base URL</string>
-    <string name="settings_api_base_url_default">https://api.openai.com/</string>
+    <string name="settings_api_base_url_default">https://api.deepseek.com/</string>
     <string name="settings_cloud_processing">Cloud Processing</string>
-    <string name="settings_cloud_processing_desc">Send audio to API for transcription and summaries</string>
+    <string name="settings_cloud_processing_desc">Send data to DeepSeek for AI summaries and report generation</string>
     <string name="settings_auto_transcribe">Auto-Transcribe</string>
     <string name="settings_auto_transcribe_desc">Automatically transcribe recordings after completion</string>
     <string name="settings_auto_emotion">Auto Emotion Analysis</string>
@@ -65,7 +65,7 @@
     <!-- Privacy -->
     <string name="privacy_title">Privacy Statement</string>
     <string name="privacy_point_1">MindEcho 重视您的隐私。所有录音数据默认仅存储在您的设备上。</string>
-    <string name="privacy_point_2">只有在您主动配置了云端API密钥后，部分音频才会发送到云端进行处理。</string>
+    <string name="privacy_point_2">只有在您主动配置了 DeepSeek API 密钥后，对话内容才会发送到 DeepSeek 进行 AI 分析和报告生成。</string>
     <string name="privacy_point_3">我们不会收集、上传或分享您的任何个人数据。</string>
     <string name="privacy_point_4">您可以随时删除所有数据。</string>
 

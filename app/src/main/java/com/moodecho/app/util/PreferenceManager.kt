@@ -22,7 +22,7 @@ class PreferenceManager(private val context: Context) {
 
     companion object {
         // API Configuration
-        val KEY_OPENAI_API_KEY = stringPreferencesKey("openai_api_key")
+        val KEY_DEEPSEEK_API_KEY = stringPreferencesKey("deepseek_api_key")
         val KEY_API_BASE_URL = stringPreferencesKey("api_base_url")
 
         // Privacy
@@ -34,14 +34,14 @@ class PreferenceManager(private val context: Context) {
         val KEY_AUTO_ANALYZE_EMOTION = booleanPreferencesKey("auto_analyze_emotion")
 
         // Defaults
-        const val DEFAULT_API_BASE_URL = "https://api.openai.com/"
+        const val DEFAULT_API_BASE_URL = "https://api.deepseek.com/"
     }
 
     // ---- API Configuration ----
 
-    /** Get the configured OpenAI API key */
-    val openAiApiKey: Flow<String?> = context.dataStore.data.map { prefs ->
-        prefs[KEY_OPENAI_API_KEY]
+    /** Get the configured DeepSeek API key */
+    val deepseekApiKey: Flow<String?> = context.dataStore.data.map { prefs ->
+        prefs[KEY_DEEPSEEK_API_KEY]
     }
 
     /** Get the configured API base URL */
@@ -49,10 +49,10 @@ class PreferenceManager(private val context: Context) {
         prefs[KEY_API_BASE_URL] ?: DEFAULT_API_BASE_URL
     }
 
-    /** Save the OpenAI API key */
-    suspend fun setOpenAiApiKey(key: String) {
+    /** Save the DeepSeek API key */
+    suspend fun setDeepseekApiKey(key: String) {
         context.dataStore.edit { prefs ->
-            prefs[KEY_OPENAI_API_KEY] = key
+            prefs[KEY_DEEPSEEK_API_KEY] = key
         }
     }
 

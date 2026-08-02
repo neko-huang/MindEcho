@@ -10,7 +10,9 @@ import retrofit2.http.POST
 import retrofit2.http.Part
 
 /**
- * Retrofit API interface for OpenAI Whisper transcription.
+ * Retrofit API interface for Whisper transcription (OpenAI-compatible).
+ * DeepSeek does not provide Whisper; users may configure a separate OpenAI key
+ * for transcription if needed.
  * Endpoint: POST /v1/audio/transcriptions
  */
 interface WhisperApi {
@@ -34,7 +36,7 @@ data class WhisperResponse(
 )
 
 /**
- * Retrofit API interface for OpenAI Chat Completions (LLM).
+ * Retrofit API interface for DeepSeek Chat Completions (OpenAI-compatible).
  * Used for conversation summaries and report generation.
  * Endpoint: POST /v1/chat/completions
  */
@@ -51,7 +53,7 @@ interface LlmApi {
  * Request body for chat completion API.
  */
 data class ChatCompletionRequest(
-    val model: String = "gpt-3.5-turbo",
+    val model: String = "deepseek-chat",
     val messages: List<ChatMessage>,
     val temperature: Double = 0.7,
     val max_tokens: Int = 1000

@@ -44,7 +44,7 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun SettingsScreen() {
     var apiKey by remember { mutableStateOf("") }
-    var apiBaseUrl by remember { mutableStateOf("https://api.openai.com/") }
+    var apiBaseUrl by remember { mutableStateOf("https://api.deepseek.com/") }
     var cloudProcessingEnabled by remember { mutableStateOf(false) }
     var autoTranscribe by remember { mutableStateOf(false) }
     var autoAnalyzeEmotion by remember { mutableStateOf(true) }
@@ -79,8 +79,9 @@ fun SettingsScreen() {
             Spacer(modifier = Modifier.height(4.dp))
 
             Text(
-                text = "Optional. Configure an API key to enable cloud-based transcription and summaries. " +
-                        "The app works fully offline without these settings.",
+                text = "Optional. Configure a DeepSeek API key to enable cloud-based " +
+                        "conversation summaries and report generation. The app works fully " +
+                        "offline without these settings.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -91,7 +92,7 @@ fun SettingsScreen() {
             OutlinedTextField(
                 value = apiKey,
                 onValueChange = { apiKey = it },
-                label = { Text("OpenAI API Key") },
+                label = { Text("DeepSeek API Key") },
                 placeholder = { Text("sk-...") },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp),
@@ -105,7 +106,7 @@ fun SettingsScreen() {
                 value = apiBaseUrl,
                 onValueChange = { apiBaseUrl = it },
                 label = { Text("API Base URL") },
-                placeholder = { Text("https://api.openai.com/") },
+                placeholder = { Text("https://api.deepseek.com/") },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp),
                 singleLine = true
@@ -133,7 +134,7 @@ fun SettingsScreen() {
                             fontWeight = FontWeight.Medium
                         )
                         Text(
-                            text = "Send audio to API for transcription and summaries",
+                            text = "Send data to DeepSeek for AI summaries and report generation",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -260,7 +261,7 @@ fun SettingsScreen() {
                     // Privacy points
                     val privacyPoints = listOf(
                         "MindEcho 重视您的隐私。所有录音数据默认仅存储在您的设备上。",
-                        "只有在您主动配置了云端API密钥后，部分音频才会发送到云端进行处理。",
+                        "只有在您主动配置了 DeepSeek API 密钥后，对话内容才会发送到 DeepSeek 进行 AI 分析和报告生成。",
                         "我们不会收集、上传或分享您的任何个人数据。",
                         "您可以随时删除所有数据。"
                     )
