@@ -8,7 +8,6 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,6 +23,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -33,14 +33,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.moodecho.app.domain.model.EmotionResult
 import com.moodecho.app.domain.model.EmotionType
@@ -71,10 +67,6 @@ fun getEmotionColor(emotionType: EmotionType): Color = when (emotionType) {
 /**
  * Real-time waveform animation component.
  * Draws an animated waveform based on the current amplitude level.
- *
- * @param amplitude Current amplitude level (0.0 ~ 1.0)
- * @param barCount Number of bars in the waveform display
- * @param modifier Optional modifier
  */
 @Composable
 fun WaveformAnimation(
@@ -140,12 +132,8 @@ fun WaveformAnimation(
 
 /**
  * Emotion chip component displaying an emotion label with color coding.
- *
- * @param emotionType The emotion type to display
- * @param confidence Optional confidence value (0.0 ~ 1.0)
- * @param isSelected Whether the chip is in selected state
- * @param onClick Optional click handler
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EmotionChip(
     emotionType: EmotionType,
@@ -197,12 +185,8 @@ fun EmotionChip(
 
 /**
  * Session card component for displaying a recording session summary.
- *
- * @param title Session title
- * @param startTime Session start time (epoch millis)
- * @param duration Duration in milliseconds
- * @param dominantEmotion The primary emotion detected
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SessionCard(
     title: String,
@@ -292,9 +276,6 @@ fun SessionCard(
 /**
  * Emotion timeline visualization.
  * Displays a horizontal bar showing emotion changes over time.
- *
- * @param emotionResults List of emotion data points in chronological order
- * @param modifier Optional modifier
  */
 @Composable
 fun EmotionTimeline(
@@ -311,10 +292,6 @@ fun EmotionTimeline(
         return
     }
 
-    val totalDuration = emotionResults.lastOrNull()?.timestamp?.let { lastTs ->
-        (lastTs - (emotionResults.firstOrNull()?.timestamp ?: 0)).coerceAtLeast(1)
-    } ?: 1L
-
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -322,10 +299,9 @@ fun EmotionTimeline(
             .clip(RoundedCornerShape(12.dp))
     ) {
         emotionResults.forEachIndexed { index, result ->
-            val widthFraction = 1f / emotionResults.size
             Box(
                 modifier = Modifier
-                    .weight(widthFraction)
+                    .weight(1f)
                     .fillMaxHeight()
                     .background(getEmotionColor(result.emotionType))
             )
