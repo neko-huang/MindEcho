@@ -5,6 +5,9 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -32,3 +35,32 @@ jobs:
         with:
           name: app-debug
           path: app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Create Release and Upload APK
+        if: github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v0.1.0-mvp
+          name: "MindEcho v0.1.0 - MVP Preview"
+          body: |
+            ## MindEcho v0.1.0 MVP
+
+            首个可运行版本！
+
+            ### 功能
+            - 录音（前台服务，随时开始/停止）
+            - 语音特征情绪分析（7种情绪）
+            - 历史查看与情绪时间线
+            - 每日报告生成
+            - 隐私声明
+            - 预留心率传感器接口
+
+            ### 注意
+            - 这是 debug 构建，仅供测试
+            - 云端功能（转录/总结）需自行配置 API Key
+            - 无传感器设备完全可用
+          draft: false
+          prerelease: true
+          files: app/build/outputs/apk/debug/app-debug.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
