@@ -46,7 +46,7 @@ class AudioFeatureExtractor {
         val frameFeatures = extractFrameFeatures(samples, frameLength, frameShift)
 
         // Aggregate into windows
-        return aggregateIntoWindows(frameFeatures, frameShift, windowShift, sampleRate)
+        return aggregateIntoWindows(frameFeatures, FRAME_SHIFT_MS, windowShift, sampleRate)
     }
 
     /**
@@ -76,8 +76,8 @@ class AudioFeatureExtractor {
                     .order(ByteOrder.LITTLE_ENDIAN).short.toInt()
 
                 // Read remaining audio data
-                val dataSize = file.length() - 44
-                val rawData = ByteArray(dataSize.toInt())
+                val dataSize = (file.length() - 44).toInt()
+                val rawData = ByteArray(dataSize)
                 fis.read(rawData)
 
                 // Convert to float samples (normalize to -1.0 ~ 1.0)
