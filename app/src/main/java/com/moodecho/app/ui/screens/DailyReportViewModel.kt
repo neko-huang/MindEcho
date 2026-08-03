@@ -13,7 +13,6 @@ import com.moodecho.app.util.PreferenceManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -63,8 +62,8 @@ class DailyReportViewModel(
     fun loadForDate(date: String) {
         viewModelScope.launch {
             try {
-                // Check API key status
-                val apiKey = preferenceManager.deepseekApiKey.first() ?: ""
+                // Check API key status — use synchronous getter for latest value
+                val apiKey = preferenceManager.getDeepseekApiKey() ?: ""
                 _uiState.value = _uiState.value.copy(hasApiKey = apiKey.isNotBlank())
 
                 // Fetch existing report for this date

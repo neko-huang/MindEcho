@@ -16,7 +16,6 @@ import com.moodecho.app.data.repository.RecordingRepository
 import com.moodecho.app.domain.model.EmotionType
 import com.moodecho.app.util.Constants
 import com.moodecho.app.util.PreferenceManager
-import kotlinx.coroutines.flow.first
 import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
@@ -64,13 +63,13 @@ object DailyReportService {
         )
         val preferenceManager = PreferenceManager(context)
 
-        // Check if DeepSeek API key is configured
-        val apiKey = preferenceManager.deepseekApiKey.first() ?: ""
+        // Check if DeepSeek API key is configured — use synchronous getter
+        val apiKey = preferenceManager.getDeepseekApiKey() ?: ""
         if (apiKey.isBlank()) {
             return ReportResult.NoApiKey
         }
 
-        val baseUrl = preferenceManager.apiBaseUrl.first()
+        val baseUrl = preferenceManager.getApiBaseUrl()
 
         // Fetch all sessions for the given date
         val sessions = repository.getSessionsByDate(date)

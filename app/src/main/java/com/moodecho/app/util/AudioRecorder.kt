@@ -1,5 +1,6 @@
 package com.moodecho.app.util
 
+import android.content.Context
 import android.media.MediaRecorder
 import android.os.Build
 import kotlinx.coroutines.CoroutineScope
@@ -21,8 +22,11 @@ import java.io.IOException
  * - Exposes real-time amplitude via StateFlow for waveform visualization
  * - Supports pause/resume on API 24+
  * - Outputs to the app's external files directory
+ *
+ * @param context Application context required for MediaRecorder creation on API 31+.
+ *                Pass null only if targeting API < 31 exclusively.
  */
-class AudioRecorder {
+class AudioRecorder(private val context: Context? = null) {
 
     private var recorder: MediaRecorder? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -139,10 +143,20 @@ class AudioRecorder {
 
     /**
      * Create a MediaRecorder instance using the appropriate API for the device.
+     *
+     * On API 31+ (Android 12+), MediaRecorder(Context) requires a valid
+     * application context. Passing a bare `android.app.Application()` instance
+     * without proper initialization causes a crash. Always use the provided
+     * [context] parameter.
      */
     private fun createRecorder(): MediaRecorder {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            MediaRecorder(android.app.Application())
+            val appContext = context?.applicationContext
+                ?: throw IllegalStateException(
+                    "AudioRecorder requires a valid Context on API 31+. " +
+                    "Pass the application context to the constructor."
+                )
+            MediaRecorder(appContext)
         } else {
             @Suppress("DEPRECATION")
             MediaRecorder()

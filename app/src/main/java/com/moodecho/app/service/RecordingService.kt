@@ -363,7 +363,7 @@ class RecordingService : Service() {
     }
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    private val audioRecorder = AudioRecorder()
+    private val audioRecorder = AudioRecorder(this)
     private var startTime: Long = 0
 
     override fun onCreate() {
