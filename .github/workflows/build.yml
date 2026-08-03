@@ -14,6 +14,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -30,37 +32,45 @@ jobs:
       - name: Build with Gradle
         run: ./gradlew assembleDebug --no-daemon --stacktrace
 
-      - name: Upload APK
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: app-debug
           path: app/build/outputs/apk/debug/app-debug.apk
 
+      - name: Generate version tag
+        id: version
+        run: |
+          SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
+          echo "tag=v0.2.0-test-${SHORT_SHA}" >> $GITHUB_OUTPUT
+          echo "date=$(date '+%Y-%m-%d %H:%M UTC')" >> $GITHUB_OUTPUT
+
       - name: Create Release and Upload APK
-        if: github.event_name == 'workflow_dispatch'
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
-          tag_name: v0.1.0-mvp
-          name: "MindEcho v0.1.0 - MVP Preview"
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: "MindEcho ${{ steps.version.outputs.tag }}"
           body: |
-            ## MindEcho v0.1.0 MVP
+            ## MindEcho ${{ steps.version.outputs.tag }}
 
-            首个可运行版本！
+            自动构建于 ${{ steps.version.outputs.date }}
 
-            ### 功能
-            - 录音（前台服务，随时开始/停止）
-            - 语音特征情绪分析（7种情绪）
-            - 历史查看与情绪时间线
-            - 每日报告生成
-            - 隐私声明
-            - 预留心率传感器接口
+            ### 本次更新
+            - 设置页性能优化（消除卡顿）
+            - DataStore 读取合并为单次订阅（6次→1次）
+            - 文本输入防抖保存（500ms）
+            - 设置持久化修复（ioScope 独立生命周期）
+            - DeepSeek 模型升级至 deepseek-v4-flash
+            - 录音详情页（情绪时间线 + 转录）
+            - 每日情绪报告
+            - AssemblyAI 转录接入
 
             ### 注意
-            - 这是 debug 构建，仅供测试
-            - 云端功能（转录/总结）需自行配置 API Key
-            - 无传感器设备完全可用
+            - debug 构建，仅供测试
+            - 云端功能需自行配置 API Key
           draft: false
           prerelease: true
           files: app/build/outputs/apk/debug/app-debug.apk
+          generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
