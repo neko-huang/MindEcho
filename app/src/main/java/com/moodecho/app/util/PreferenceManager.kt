@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 
 /**
  * Manages app preferences using DataStore (modern replacement for SharedPreferences).
@@ -19,6 +20,55 @@ class PreferenceManager(private val context: Context) {
     private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(
         name = "mindecho_prefs"
     )
+
+    // Independent scope that survives composable/ViewModel lifecycle
+    private val ioScope = kotlinx.coroutines.CoroutineScope(
+        kotlinx.coroutines.Dispatchers.IO + kotlinx.coroutines.SupervisorJob()
+    )
+
+    /** Fire-and-forget save that survives composable disposal */
+    fun saveDeepseekApiKey(key: String) {
+        ioScope.launch { setDeepseekApiKey(key) }
+    }
+
+    fun saveApiBaseUrl(url: String) {
+        ioScope.launch { setApiBaseUrl(url) }
+    }
+
+    fun saveAssemblyAiApiKey(key: String) {
+        ioScope.launch { setAssemblyAiApiKey(key) }
+    }
+
+    fun saveCloudProcessingEnabled(enabled: Boolean) {
+        ioScope.launch { setCloudProcessingEnabled(enabled) }
+    }
+
+    fun saveAutoTranscribe(enabled: Boolean) {
+        ioScope.launch { setAutoTranscribe(enabled) }
+    }
+
+    fun saveAutoAnalyzeEmotion(enabled: Boolean) {
+        ioScope.launch { setAutoAnalyzeEmotion(enabled) }
+    }
+
+    /** Save all settings at once (for disposal) */
+    fun saveAll(
+        deepseekApiKey: String,
+        apiBaseUrl: String,
+        assemblyAiApiKey: String,
+        cloudProcessingEnabled: Boolean,
+        autoTranscribe: Boolean,
+        autoAnalyzeEmotion: Boolean
+    ) {
+        ioScope.launch {
+            setDeepseekApiKey(deepseekApiKey)
+            setApiBaseUrl(apiBaseUrl)
+            setAssemblyAiApiKey(assemblyAiApiKey)
+            setCloudProcessingEnabled(cloudProcessingEnabled)
+            setAutoTranscribe(autoTranscribe)
+            setAutoAnalyzeEmotion(autoAnalyzeEmotion)
+        }
+    }
 
     companion object {
         // API Configuration

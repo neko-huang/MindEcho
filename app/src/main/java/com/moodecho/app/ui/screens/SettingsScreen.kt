@@ -29,7 +29,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
@@ -38,7 +37,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.moodecho.app.util.PreferenceManager
-import kotlinx.coroutines.launch
 
 /**
  * Settings screen: API configuration, privacy controls, and app information.
@@ -49,7 +47,6 @@ import kotlinx.coroutines.launch
 fun SettingsScreen() {
     val context = LocalContext.current
     val preferenceManager = remember { PreferenceManager(context) }
-    val scope = rememberCoroutineScope()
 
     // Load values directly from DataStore as State — reactive and always up-to-date
     val savedApiKey by preferenceManager.deepseekApiKey.collectAsState(initial = null)
@@ -79,28 +76,29 @@ fun SettingsScreen() {
         }
     }
 
-    // Save text fields immediately when user finishes editing (on value change)
+    // Save text fields immediately on change (using PreferenceManager's own persistent scope)
     LaunchedEffect(apiKey) {
-        preferenceManager.setDeepseekApiKey(apiKey)
+        preferenceManager.saveDeepseekApiKey(apiKey)
     }
     LaunchedEffect(apiBaseUrl) {
-        preferenceManager.setApiBaseUrl(apiBaseUrl)
+        preferenceManager.saveApiBaseUrl(apiBaseUrl)
     }
     LaunchedEffect(assemblyAiApiKey) {
-        preferenceManager.setAssemblyAiApiKey(assemblyAiApiKey)
+        preferenceManager.saveAssemblyAiApiKey(assemblyAiApiKey)
     }
 
     // Guarantee save when leaving the screen (composable disposed)
+    // Uses PreferenceManager's internal ioScope which survives composable disposal
     DisposableEffect(Unit) {
         onDispose {
-            scope.launch {
-                preferenceManager.setDeepseekApiKey(apiKey)
-                preferenceManager.setApiBaseUrl(apiBaseUrl)
-                preferenceManager.setAssemblyAiApiKey(assemblyAiApiKey)
-                preferenceManager.setCloudProcessingEnabled(cloudProcessingEnabled)
-                preferenceManager.setAutoTranscribe(autoTranscribe)
-                preferenceManager.setAutoAnalyzeEmotion(autoAnalyzeEmotion)
-            }
+            preferenceManager.saveAll(
+                deepseekApiKey = apiKey,
+                apiBaseUrl = apiBaseUrl,
+                assemblyAiApiKey = assemblyAiApiKey,
+                cloudProcessingEnabled = cloudProcessingEnabled,
+                autoTranscribe = autoTranscribe,
+                autoAnalyzeEmotion = autoAnalyzeEmotion
+            )
         }
     }
 
@@ -198,7 +196,7 @@ fun SettingsScreen() {
                         checked = cloudProcessingEnabled,
                         onCheckedChange = {
                             cloudProcessingEnabled = it
-                            scope.launch { preferenceManager.setCloudProcessingEnabled(it) }
+                            preferenceManager.saveCloudProcessingEnabled(it)
                         },
                         enabled = apiKey.isNotBlank()
                     )
@@ -236,7 +234,7 @@ fun SettingsScreen() {
                         checked = autoTranscribe,
                         onCheckedChange = {
                             autoTranscribe = it
-                            scope.launch { preferenceManager.setAutoTranscribe(it) }
+                            preferenceManager.saveAutoTranscribe(it)
                         },
                         enabled = cloudProcessingEnabled
                     )
@@ -274,7 +272,7 @@ fun SettingsScreen() {
                         checked = autoAnalyzeEmotion,
                         onCheckedChange = {
                             autoAnalyzeEmotion = it
-                            scope.launch { preferenceManager.setAutoAnalyzeEmotion(it) }
+                            preferenceManager.saveAutoAnalyzeEmotion(it)
                         }
                     )
                 }
