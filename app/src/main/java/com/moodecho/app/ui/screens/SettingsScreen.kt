@@ -12,13 +12,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -26,28 +24,68 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.moodecho.app.util.PreferenceManager
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 
 /**
  * Settings screen: API configuration, privacy controls, and app information.
- * Includes the privacy statement and API key configuration.
+ * All settings are persisted via PreferenceManager (DataStore).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen() {
+    val context = LocalContext.current
+    val preferenceManager = remember { PreferenceManager(context) }
+    val scope = rememberCoroutineScope()
+
+    // Local editing state (will be initialized from DataStore)
     var apiKey by remember { mutableStateOf("") }
-    var apiBaseUrl by remember { mutableStateOf("https://api.deepseek.com/") }
+    var apiBaseUrl by remember { mutableStateOf(PreferenceManager.DEFAULT_API_BASE_URL) }
     var cloudProcessingEnabled by remember { mutableStateOf(false) }
     var autoTranscribe by remember { mutableStateOf(false) }
     var autoAnalyzeEmotion by remember { mutableStateOf(true) }
+
+    // Track whether initial load is complete to avoid premature saves
+    var loaded by remember { mutableStateOf(false) }
+
+    // Load saved values from DataStore once
+    LaunchedEffect(Unit) {
+        coroutineScope {
+            launch { apiKey = preferenceManager.deepseekApiKey.first() ?: "" }
+            launch { apiBaseUrl = preferenceManager.apiBaseUrl.first() }
+            launch { cloudProcessingEnabled = preferenceManager.isCloudProcessingEnabled.first() }
+            launch { autoTranscribe = preferenceManager.autoTranscribe.first() }
+            launch { autoAnalyzeEmotion = preferenceManager.autoAnalyzeEmotion.first() }
+        }
+        loaded = true
+    }
+
+    // Debounced save for text fields — save 600ms after user stops typing
+    LaunchedEffect(apiKey) {
+        if (loaded) {
+            kotlinx.coroutines.delay(600)
+            preferenceManager.setDeepseekApiKey(apiKey)
+        }
+    }
+    LaunchedEffect(apiBaseUrl) {
+        if (loaded) {
+            kotlinx.coroutines.delay(600)
+            preferenceManager.setApiBaseUrl(apiBaseUrl)
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -141,7 +179,10 @@ fun SettingsScreen() {
                     }
                     Switch(
                         checked = cloudProcessingEnabled,
-                        onCheckedChange = { cloudProcessingEnabled = it },
+                        onCheckedChange = {
+                            cloudProcessingEnabled = it
+                            scope.launch { preferenceManager.setCloudProcessingEnabled(it) }
+                        },
                         enabled = apiKey.isNotBlank()
                     )
                 }
@@ -176,7 +217,10 @@ fun SettingsScreen() {
                     }
                     Switch(
                         checked = autoTranscribe,
-                        onCheckedChange = { autoTranscribe = it },
+                        onCheckedChange = {
+                            autoTranscribe = it
+                            scope.launch { preferenceManager.setAutoTranscribe(it) }
+                        },
                         enabled = cloudProcessingEnabled
                     )
                 }
@@ -211,7 +255,10 @@ fun SettingsScreen() {
                     }
                     Switch(
                         checked = autoAnalyzeEmotion,
-                        onCheckedChange = { autoAnalyzeEmotion = it }
+                        onCheckedChange = {
+                            autoAnalyzeEmotion = it
+                            scope.launch { preferenceManager.setAutoAnalyzeEmotion(it) }
+                        }
                     )
                 }
             }
