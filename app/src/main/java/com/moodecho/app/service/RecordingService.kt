@@ -88,167 +88,6 @@ class RecordingService : Service() {
 
         private val _analysisStatus = MutableStateFlow("")
         val analysisStatus: StateFlow<String> = _analysisStatus.asStateFlow()
-    }
-
-    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    private val audioRecorder = AudioRecorder()
-    private var startTime: Long = 0
-
-    override fun onCreate() {
-        super.onCreate()
-        createNotificationChannel()
-    }
-
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        when (intent?.action) {
-            ACTION_START -> {
-                val outputPath = intent.getStringExtra(EXTRA_OUTPUT_PATH)
-                    ?: return START_NOT_STICKY
-                startRecording(outputPath)
-            }
-            ACTION_STOP -> stopRecording()
-            ACTION_PAUSE -> pauseRecording()
-            ACTION_RESUME -> resumeRecording()
-        }
-        return START_NOT_STICKY
-    }
-
-    override fun onBind(intent: Intent?): IBinder? = null
-
-    override fun onDestroy() {
-        super.onDestroy()
-        audioRecorder.release()
-        _isRecording.value = false
-        serviceScope.cancel()
-    }
-
-    /**
-     * Start recording and promote the service to foreground.
-     */
-    private fun startRecording(outputPath: String) {
-        val notification = createNotification("Recording... 0:00")
-
-        // Start as foreground service with microphone type (API 34+)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            startForeground(
-                NOTIFICATION_ID,
-                notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
-            )
-        } else {
-            startForeground(NOTIFICATION_ID, notification)
-        }
-
-        audioRecorder.start(outputPath)
-        _isRecording.value = true
-        startTime = System.currentTimeMillis()
-
-        // Update duration and amplitude periodically
-        serviceScope.launch {
-            audioRecorder.amplitudeFlow.collect { amplitude ->
-                _currentAmplitude.value = amplitude
-            }
-        }
-
-        serviceScope.launch {
-            while (_isRecording.value) {
-                val elapsed = System.currentTimeMillis() - startTime
-                _recordingDuration.value = elapsed
-                val minutes = (elapsed / 1000) / 60
-                val seconds = (elapsed / 1000) % 60
-                updateNotification("Recording... %d:%02d".format(minutes, seconds))
-                kotlinx.coroutines.delay(1000)
-            }
-        }
-    }
-
-    /**
-     * Stop recording and stop the service.
-     * If AssemblyAI key is configured, starts transcription in the background.
-     */
-    private fun stopRecording() {
-        audioRecorder.stop()
-        _isRecording.value = false
-        _recordingDuration.value = 0L
-        _currentAmplitude.value = 0f
-        stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelf()
-    }
-
-    /**
-     * Pause the current recording.
-     */
-    private fun pauseRecording() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            audioRecorder.pause()
-            updateNotification("Recording paused")
-        }
-    }
-
-    /**
-     * Resume a paused recording.
-     */
-    private fun resumeRecording() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            audioRecorder.resume()
-            updateNotification("Recording...")
-        }
-    }
-
-    /**
-     * Create the notification channel for Android O+.
-     */
-    private fun createNotificationChannel() {
-        val channel = NotificationChannel(
-            CHANNEL_ID,
-            CHANNEL_NAME,
-            NotificationManager.IMPORTANCE_LOW
-        ).apply {
-            description = "Shows when recording is in progress"
-            setShowBadge(false)
-        }
-        val manager = getSystemService(NotificationManager::class.java)
-        manager.createNotificationChannel(channel)
-    }
-
-    /**
-     * Build the foreground notification.
-     */
-    private fun createNotification(text: String): Notification {
-        val pendingIntent = PendingIntent.getActivity(
-            this,
-            0,
-            Intent(this, MainActivity::class.java),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-        val stopIntent = PendingIntent.getService(
-            this,
-            1,
-            Intent(this, RecordingService::class.java).apply { action = ACTION_STOP },
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-        return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("MindEcho")
-            .setContentText(text)
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .setContentIntent(pendingIntent)
-            .addAction(android.R.drawable.ic_media_pause, "Stop", stopIntent)
-            .setOngoing(true)
-            .build()
-    }
-
-    /**
-     * Update the foreground notification text.
-     */
-    private fun updateNotification(text: String) {
-        val notification = createNotification(text)
-        val manager = getSystemService(NotificationManager::class.java)
-        manager.notify(NOTIFICATION_ID, notification)
-    }
-
-    object TranscriptionHelper {
 
         /**
          * Transcribe an audio file using AssemblyAI with speaker diarization.
@@ -521,5 +360,163 @@ class RecordingService : Service() {
                 return false
             }
         }
+    }
+
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val audioRecorder = AudioRecorder()
+    private var startTime: Long = 0
+
+    override fun onCreate() {
+        super.onCreate()
+        createNotificationChannel()
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        when (intent?.action) {
+            ACTION_START -> {
+                val outputPath = intent.getStringExtra(EXTRA_OUTPUT_PATH)
+                    ?: return START_NOT_STICKY
+                startRecording(outputPath)
+            }
+            ACTION_STOP -> stopRecording()
+            ACTION_PAUSE -> pauseRecording()
+            ACTION_RESUME -> resumeRecording()
+        }
+        return START_NOT_STICKY
+    }
+
+    override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onDestroy() {
+        super.onDestroy()
+        audioRecorder.release()
+        _isRecording.value = false
+        serviceScope.cancel()
+    }
+
+    /**
+     * Start recording and promote the service to foreground.
+     */
+    private fun startRecording(outputPath: String) {
+        val notification = createNotification("Recording... 0:00")
+
+        // Start as foreground service with microphone type (API 34+)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            startForeground(
+                NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+            )
+        } else {
+            startForeground(NOTIFICATION_ID, notification)
+        }
+
+        audioRecorder.start(outputPath)
+        _isRecording.value = true
+        startTime = System.currentTimeMillis()
+
+        // Update duration and amplitude periodically
+        serviceScope.launch {
+            audioRecorder.amplitudeFlow.collect { amplitude ->
+                _currentAmplitude.value = amplitude
+            }
+        }
+
+        serviceScope.launch {
+            while (_isRecording.value) {
+                val elapsed = System.currentTimeMillis() - startTime
+                _recordingDuration.value = elapsed
+                val minutes = (elapsed / 1000) / 60
+                val seconds = (elapsed / 1000) % 60
+                updateNotification("Recording... %d:%02d".format(minutes, seconds))
+                kotlinx.coroutines.delay(1000)
+            }
+        }
+    }
+
+    /**
+     * Stop recording and stop the service.
+     * If AssemblyAI key is configured, starts transcription in the background.
+     */
+    private fun stopRecording() {
+        audioRecorder.stop()
+        _isRecording.value = false
+        _recordingDuration.value = 0L
+        _currentAmplitude.value = 0f
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
+    }
+
+    /**
+     * Pause the current recording.
+     */
+    private fun pauseRecording() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            audioRecorder.pause()
+            updateNotification("Recording paused")
+        }
+    }
+
+    /**
+     * Resume a paused recording.
+     */
+    private fun resumeRecording() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            audioRecorder.resume()
+            updateNotification("Recording...")
+        }
+    }
+
+    /**
+     * Create the notification channel for Android O+.
+     */
+    private fun createNotificationChannel() {
+        val channel = NotificationChannel(
+            CHANNEL_ID,
+            CHANNEL_NAME,
+            NotificationManager.IMPORTANCE_LOW
+        ).apply {
+            description = "Shows when recording is in progress"
+            setShowBadge(false)
+        }
+        val manager = getSystemService(NotificationManager::class.java)
+        manager.createNotificationChannel(channel)
+    }
+
+    /**
+     * Build the foreground notification.
+     */
+    private fun createNotification(text: String): Notification {
+        val pendingIntent = PendingIntent.getActivity(
+            this,
+            0,
+            Intent(this, MainActivity::class.java),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val stopIntent = PendingIntent.getService(
+            this,
+            1,
+            Intent(this, RecordingService::class.java).apply { action = ACTION_STOP },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        return NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle("MindEcho")
+            .setContentText(text)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setContentIntent(pendingIntent)
+            .addAction(android.R.drawable.ic_media_pause, "Stop", stopIntent)
+            .setOngoing(true)
+            .build()
+    }
+
+    /**
+     * Update the foreground notification text.
+     */
+    private fun updateNotification(text: String) {
+        val notification = createNotification(text)
+        val manager = getSystemService(NotificationManager::class.java)
+        manager.notify(NOTIFICATION_ID, notification)
     }
 }
