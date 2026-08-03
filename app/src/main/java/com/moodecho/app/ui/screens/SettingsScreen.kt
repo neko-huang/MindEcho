@@ -24,88 +24,58 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.moodecho.app.util.PreferenceManager
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 
 /**
  * Settings screen: API configuration, privacy controls, and app information.
  * All settings are persisted via PreferenceManager (DataStore).
  *
- * Performance: Uses a single DataStore subscription (allSettings) instead of 6 separate flows.
- * Text field saves are debounced (500ms after last keystroke) to avoid excessive disk writes.
+ * State management: Uses simple remember + LaunchedEffect for initial load.
+ * Every change is saved IMMEDIATELY to DataStore (no debounce, no onDispose).
+ * On each composable entry, settings are reloaded from DataStore to guarantee
+ * consistency with the persisted state, even when restored from saveState.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen() {
-    val context = LocalContext.current
+    // Use applicationContext to avoid DataStore recreation on Activity rebuild
+    val context = LocalContext.current.applicationContext
     val preferenceManager = remember { PreferenceManager(context) }
 
-    // One-time DataStore read: loads saved settings once on composable entry.
-    // Uses produceState + first() instead of collectAsState to avoid continuous
-    // re-subscription that could overwrite local editing state with stale DataStore values.
-    val initialSettings by produceState(
-        initialValue = PreferenceManager.SettingsState(),
-        producer = { value = preferenceManager.allSettings.first() }
-    )
+    // Local editing state — always initialized from DataStore on each entry
+    var apiKey by remember { mutableStateOf("") }
+    var apiBaseUrl by remember { mutableStateOf(PreferenceManager.DEFAULT_API_BASE_URL) }
+    var assemblyAiApiKey by remember { mutableStateOf("") }
+    var cloudProcessingEnabled by remember { mutableStateOf(false) }
+    var autoTranscribe by remember { mutableStateOf(false) }
+    var autoAnalyzeEmotion by remember { mutableStateOf(true) }
 
-    // Local editing state — synced from DataStore only on first load
-    var apiKey by remember(initialSettings) {
-        mutableStateOf(initialSettings.deepseekApiKey ?: "")
-    }
-    var apiBaseUrl by remember(initialSettings) {
-        mutableStateOf(initialSettings.apiBaseUrl)
-    }
-    var assemblyAiApiKey by remember(initialSettings) {
-        mutableStateOf(initialSettings.assemblyAiApiKey ?: "")
-    }
-    var cloudProcessingEnabled by remember(initialSettings) {
-        mutableStateOf(initialSettings.cloudProcessingEnabled)
-    }
-    var autoTranscribe by remember(initialSettings) {
-        mutableStateOf(initialSettings.autoTranscribe)
-    }
-    var autoAnalyzeEmotion by remember(initialSettings) {
-        mutableStateOf(initialSettings.autoAnalyzeEmotion)
-    }
-
-    // Debounced saves for text fields — wait 500ms after last change before writing to disk
-    LaunchedEffect(apiKey) {
-        delay(500L)
-        preferenceManager.saveDeepseekApiKey(apiKey)
-    }
-    LaunchedEffect(apiBaseUrl) {
-        delay(500L)
-        preferenceManager.saveApiBaseUrl(apiBaseUrl)
-    }
-    LaunchedEffect(assemblyAiApiKey) {
-        delay(500L)
-        preferenceManager.saveAssemblyAiApiKey(assemblyAiApiKey)
-    }
-
-    // Guarantee save when leaving the screen (single transaction)
-    DisposableEffect(Unit) {
-        onDispose {
-            preferenceManager.saveAll(
-                deepseekApiKey = apiKey,
-                apiBaseUrl = apiBaseUrl,
-                assemblyAiApiKey = assemblyAiApiKey,
-                cloudProcessingEnabled = cloudProcessingEnabled,
-                autoTranscribe = autoTranscribe,
-                autoAnalyzeEmotion = autoAnalyzeEmotion
-            )
+    // Load settings from DataStore on every composable entry.
+    // This ensures we always display the latest persisted values, even when
+    // the composable is restored from saveState (which would otherwise restore
+    // stale remember values captured before the previous save completed).
+    LaunchedEffect(Unit) {
+        try {
+            val settings = preferenceManager.allSettings.first()
+            apiKey = settings.deepseekApiKey ?: ""
+            apiBaseUrl = settings.apiBaseUrl
+            assemblyAiApiKey = settings.assemblyAiApiKey ?: ""
+            cloudProcessingEnabled = settings.cloudProcessingEnabled
+            autoTranscribe = settings.autoTranscribe
+            autoAnalyzeEmotion = settings.autoAnalyzeEmotion
+        } catch (_: Exception) {
+            // If DataStore read fails, keep the default empty values
         }
     }
 
@@ -148,10 +118,13 @@ fun SettingsScreen() {
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // DeepSeek API Key input
+            // DeepSeek API Key input — save immediately on every keystroke
             OutlinedTextField(
                 value = apiKey,
-                onValueChange = { apiKey = it },
+                onValueChange = {
+                    apiKey = it
+                    preferenceManager.saveDeepseekApiKey(it)
+                },
                 label = { Text("DeepSeek API Key") },
                 placeholder = { Text("sk-...") },
                 modifier = Modifier.fillMaxWidth(),
@@ -161,10 +134,13 @@ fun SettingsScreen() {
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // API Base URL input
+            // API Base URL input — save immediately on every keystroke
             OutlinedTextField(
                 value = apiBaseUrl,
-                onValueChange = { apiBaseUrl = it },
+                onValueChange = {
+                    apiBaseUrl = it
+                    preferenceManager.saveApiBaseUrl(it)
+                },
                 label = { Text("API Base URL") },
                 placeholder = { Text("https://api.deepseek.com/") },
                 modifier = Modifier.fillMaxWidth(),
@@ -174,7 +150,7 @@ fun SettingsScreen() {
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Cloud processing toggle
+            // Cloud processing toggle — save immediately
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(
@@ -212,7 +188,7 @@ fun SettingsScreen() {
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Auto-transcribe toggle
+            // Auto-transcribe toggle — save immediately
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(
@@ -250,7 +226,7 @@ fun SettingsScreen() {
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Auto emotion analysis toggle
+            // Auto emotion analysis toggle — save immediately
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(
@@ -306,10 +282,13 @@ fun SettingsScreen() {
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // AssemblyAI API Key input
+            // AssemblyAI API Key input — save immediately on every keystroke
             OutlinedTextField(
                 value = assemblyAiApiKey,
-                onValueChange = { assemblyAiApiKey = it },
+                onValueChange = {
+                    assemblyAiApiKey = it
+                    preferenceManager.saveAssemblyAiApiKey(it)
+                },
                 label = { Text("AssemblyAI API Key") },
                 placeholder = { Text("Your AssemblyAI API key") },
                 modifier = Modifier.fillMaxWidth(),
