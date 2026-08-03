@@ -1,95 +1,125 @@
 package com.moodecho.app.util
 
 import android.content.Context
-import androidx.datastore.core.DataStore
-import androidx.datastore.preferences.core.Preferences
-import androidx.datastore.preferences.core.booleanPreferencesKey
-import androidx.datastore.preferences.core.edit
-import androidx.datastore.preferences.core.stringPreferencesKey
-import androidx.datastore.preferences.preferencesDataStore
+import android.content.SharedPreferences
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.update
 
 /**
- * Manages app preferences using DataStore (modern replacement for SharedPreferences).
- * Stores API keys, privacy consent, and user settings.
+ * Manages app preferences using SharedPreferences with an in-memory StateFlow layer.
  *
- * Performance: All settings are read in a single DataStore subscription via [allSettings],
- * avoiding multiple disk reads. Saves use a persistent ioScope that survives composable disposal.
+ * Why SharedPreferences instead of DataStore?
+ * - DataStore relies on async Flow + file I/O, which creates race conditions when
+ *   a composable is disposed and recreated (e.g., bottom tab navigation with saveState).
+ * - SharedPreferences writes are synchronous in-memory (apply() updates the in-memory
+ *   cache immediately, and getXxx() reads from that cache), eliminating all async races.
+ * - The in-memory StateFlow keeps the reactive API for existing consumers (ViewModels, Services).
+ *
+ * Design:
+ * - All saveXxx() methods write to SharedPreferences synchronously AND update the
+ *   in-memory StateFlow immediately.
+ * - All read access goes through the StateFlow (reactive) or SharedPreferences (synchronous).
+ * - The StateFlow is initialized from SharedPreferences in the constructor, so it's
+ *   always up-to-date from the moment of creation.
  */
 class PreferenceManager(private val context: Context) {
 
-    private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(
-        name = "mindecho_prefs"
-    )
+    // ---- SharedPreferences (synchronous storage) ----
 
-    // Independent scope that survives composable/ViewModel lifecycle
-    private val ioScope = kotlinx.coroutines.CoroutineScope(
-        kotlinx.coroutines.Dispatchers.IO + kotlinx.coroutines.SupervisorJob()
-    )
+    private val prefs: SharedPreferences = context.applicationContext
+        .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
-    // ---- Unified Settings State (single DataStore read) ----
+    // ---- In-memory reactive state (always up-to-date) ----
 
-    /** Snapshot of all user settings — read once from a single DataStore subscription */
     data class SettingsState(
         val deepseekApiKey: String? = null,
         val apiBaseUrl: String = DEFAULT_API_BASE_URL,
         val assemblyAiApiKey: String? = null,
         val cloudProcessingEnabled: Boolean = false,
         val autoTranscribe: Boolean = false,
-        val autoAnalyzeEmotion: Boolean = true
+        val autoAnalyzeEmotion: Boolean = true,
+        val privacyConsented: Boolean = false
     )
 
-    /** Single Flow that reads all settings at once — replaces 6 separate flows */
-    val allSettings: Flow<SettingsState> = context.dataStore.data.map { prefs ->
-        SettingsState(
-            deepseekApiKey = prefs[KEY_DEEPSEEK_API_KEY],
-            apiBaseUrl = prefs[KEY_API_BASE_URL] ?: DEFAULT_API_BASE_URL,
-            assemblyAiApiKey = prefs[KEY_ASSEMBLYAI_API_KEY],
-            cloudProcessingEnabled = prefs[KEY_CLOUD_PROCESSING_ENABLED] ?: false,
-            autoTranscribe = prefs[KEY_AUTO_TRANSCRIBE] ?: false,
-            autoAnalyzeEmotion = prefs[KEY_AUTO_ANALYZE_EMOTION] ?: true
+    private val _settingsState = MutableStateFlow(loadSettings())
+    val settingsState: StateFlow<SettingsState> = _settingsState.asStateFlow()
+
+    /** Load all settings from SharedPreferences synchronously */
+    private fun loadSettings(): SettingsState {
+        return SettingsState(
+            deepseekApiKey = prefs.getString(KEY_DEEPSEEK_API_KEY, null),
+            apiBaseUrl = prefs.getString(KEY_API_BASE_URL, DEFAULT_API_BASE_URL) ?: DEFAULT_API_BASE_URL,
+            assemblyAiApiKey = prefs.getString(KEY_ASSEMBLYAI_API_KEY, null),
+            cloudProcessingEnabled = prefs.getBoolean(KEY_CLOUD_PROCESSING_ENABLED, false),
+            autoTranscribe = prefs.getBoolean(KEY_AUTO_TRANSCRIBE, false),
+            autoAnalyzeEmotion = prefs.getBoolean(KEY_AUTO_ANALYZE_EMOTION, true),
+            privacyConsented = prefs.getBoolean(KEY_PRIVACY_CONSENTED, false)
         )
     }
 
-    // ---- Legacy individual flows (kept for backward compatibility in non-UI code) ----
+    // ---- Reactive Flow API (backward compatible with existing consumers) ----
 
-    val deepseekApiKey: Flow<String?> = context.dataStore.data.map { it[KEY_DEEPSEEK_API_KEY] }
-    val apiBaseUrl: Flow<String> = context.dataStore.data.map { it[KEY_API_BASE_URL] ?: DEFAULT_API_BASE_URL }
-    val assemblyAiApiKey: Flow<String?> = context.dataStore.data.map { it[KEY_ASSEMBLYAI_API_KEY] }
-    val isCloudProcessingEnabled: Flow<Boolean> = context.dataStore.data.map { it[KEY_CLOUD_PROCESSING_ENABLED] ?: false }
-    val autoTranscribe: Flow<Boolean> = context.dataStore.data.map { it[KEY_AUTO_TRANSCRIBE] ?: false }
-    val autoAnalyzeEmotion: Flow<Boolean> = context.dataStore.data.map { it[KEY_AUTO_ANALYZE_EMOTION] ?: true }
-    val hasPrivacyConsent: Flow<Boolean> = context.dataStore.data.map { it[KEY_PRIVACY_CONSENTED] ?: false }
+    val allSettings: Flow<SettingsState> = _settingsState
+    val deepseekApiKey: Flow<String?> = _settingsState.map { it.deepseekApiKey }
+    val apiBaseUrl: Flow<String> = _settingsState.map { it.apiBaseUrl }
+    val assemblyAiApiKey: Flow<String?> = _settingsState.map { it.assemblyAiApiKey }
+    val isCloudProcessingEnabled: Flow<Boolean> = _settingsState.map { it.cloudProcessingEnabled }
+    val autoTranscribe: Flow<Boolean> = _settingsState.map { it.autoTranscribe }
+    val autoAnalyzeEmotion: Flow<Boolean> = _settingsState.map { it.autoAnalyzeEmotion }
+    val hasPrivacyConsent: Flow<Boolean> = _settingsState.map { it.privacyConsented }
 
-    // ---- Fire-and-forget saves (survive composable disposal) ----
+    // ---- Synchronous read methods (for SettingsScreen) ----
+
+    fun getDeepseekApiKey(): String? = prefs.getString(KEY_DEEPSEEK_API_KEY, null)
+    fun getApiBaseUrl(): String = prefs.getString(KEY_API_BASE_URL, DEFAULT_API_BASE_URL) ?: DEFAULT_API_BASE_URL
+    fun getAssemblyAiApiKey(): String? = prefs.getString(KEY_ASSEMBLYAI_API_KEY, null)
+    fun isCloudProcessingEnabled(): Boolean = prefs.getBoolean(KEY_CLOUD_PROCESSING_ENABLED, false)
+    fun isAutoTranscribe(): Boolean = prefs.getBoolean(KEY_AUTO_TRANSCRIBE, false)
+    fun isAutoAnalyzeEmotion(): Boolean = prefs.getBoolean(KEY_AUTO_ANALYZE_EMOTION, true)
+    fun hasPrivacyConsent(): Boolean = prefs.getBoolean(KEY_PRIVACY_CONSENTED, false)
+
+    // ---- Save methods (synchronous write + StateFlow update) ----
 
     fun saveDeepseekApiKey(key: String) {
-        ioScope.launch { setDeepseekApiKey(key) }
+        prefs.edit().putString(KEY_DEEPSEEK_API_KEY, key).apply()
+        _settingsState.update { it.copy(deepseekApiKey = key) }
     }
 
     fun saveApiBaseUrl(url: String) {
-        ioScope.launch { setApiBaseUrl(url) }
+        prefs.edit().putString(KEY_API_BASE_URL, url).apply()
+        _settingsState.update { it.copy(apiBaseUrl = url) }
     }
 
     fun saveAssemblyAiApiKey(key: String) {
-        ioScope.launch { setAssemblyAiApiKey(key) }
+        prefs.edit().putString(KEY_ASSEMBLYAI_API_KEY, key).apply()
+        _settingsState.update { it.copy(assemblyAiApiKey = key) }
     }
 
     fun saveCloudProcessingEnabled(enabled: Boolean) {
-        ioScope.launch { setCloudProcessingEnabled(enabled) }
+        prefs.edit().putBoolean(KEY_CLOUD_PROCESSING_ENABLED, enabled).apply()
+        _settingsState.update { it.copy(cloudProcessingEnabled = enabled) }
     }
 
     fun saveAutoTranscribe(enabled: Boolean) {
-        ioScope.launch { setAutoTranscribe(enabled) }
+        prefs.edit().putBoolean(KEY_AUTO_TRANSCRIBE, enabled).apply()
+        _settingsState.update { it.copy(autoTranscribe = enabled) }
     }
 
     fun saveAutoAnalyzeEmotion(enabled: Boolean) {
-        ioScope.launch { setAutoAnalyzeEmotion(enabled) }
+        prefs.edit().putBoolean(KEY_AUTO_ANALYZE_EMOTION, enabled).apply()
+        _settingsState.update { it.copy(autoAnalyzeEmotion = enabled) }
     }
 
-    /** Save all settings in a single DataStore transaction */
+    fun savePrivacyConsented(consented: Boolean) {
+        prefs.edit().putBoolean(KEY_PRIVACY_CONSENTED, consented).apply()
+        _settingsState.update { it.copy(privacyConsented = consented) }
+    }
+
+    /** Save all settings in a single SharedPreferences transaction */
     fun saveAll(
         deepseekApiKey: String,
         apiBaseUrl: String,
@@ -98,63 +128,54 @@ class PreferenceManager(private val context: Context) {
         autoTranscribe: Boolean,
         autoAnalyzeEmotion: Boolean
     ) {
-        ioScope.launch {
-            context.dataStore.edit { prefs ->
-                prefs[KEY_DEEPSEEK_API_KEY] = deepseekApiKey
-                prefs[KEY_API_BASE_URL] = apiBaseUrl
-                prefs[KEY_ASSEMBLYAI_API_KEY] = assemblyAiApiKey
-                prefs[KEY_CLOUD_PROCESSING_ENABLED] = cloudProcessingEnabled
-                prefs[KEY_AUTO_TRANSCRIBE] = autoTranscribe
-                prefs[KEY_AUTO_ANALYZE_EMOTION] = autoAnalyzeEmotion
-            }
+        prefs.edit()
+            .putString(KEY_DEEPSEEK_API_KEY, deepseekApiKey)
+            .putString(KEY_API_BASE_URL, apiBaseUrl)
+            .putString(KEY_ASSEMBLYAI_API_KEY, assemblyAiApiKey)
+            .putBoolean(KEY_CLOUD_PROCESSING_ENABLED, cloudProcessingEnabled)
+            .putBoolean(KEY_AUTO_TRANSCRIBE, autoTranscribe)
+            .putBoolean(KEY_AUTO_ANALYZE_EMOTION, autoAnalyzeEmotion)
+            .apply()
+        _settingsState.update {
+            it.copy(
+                deepseekApiKey = deepseekApiKey,
+                apiBaseUrl = apiBaseUrl,
+                assemblyAiApiKey = assemblyAiApiKey,
+                cloudProcessingEnabled = cloudProcessingEnabled,
+                autoTranscribe = autoTranscribe,
+                autoAnalyzeEmotion = autoAnalyzeEmotion
+            )
         }
     }
 
+    // ---- Suspend write methods (for backward compatibility, now synchronous) ----
+
+    suspend fun setDeepseekApiKey(key: String) { saveDeepseekApiKey(key) }
+    suspend fun setApiBaseUrl(url: String) { saveApiBaseUrl(url) }
+    suspend fun setAssemblyAiApiKey(key: String) { saveAssemblyAiApiKey(key) }
+    suspend fun setPrivacyConsented(consented: Boolean) { savePrivacyConsented(consented) }
+    suspend fun setCloudProcessingEnabled(enabled: Boolean) { saveCloudProcessingEnabled(enabled) }
+    suspend fun setAutoTranscribe(enabled: Boolean) { saveAutoTranscribe(enabled) }
+    suspend fun setAutoAnalyzeEmotion(enabled: Boolean) { saveAutoAnalyzeEmotion(enabled) }
+
     companion object {
+        // Storage file name
+        private const val PREFS_NAME = "mindecho_prefs"
+
         // API Configuration
-        val KEY_DEEPSEEK_API_KEY = stringPreferencesKey("deepseek_api_key")
-        val KEY_API_BASE_URL = stringPreferencesKey("api_base_url")
-        val KEY_ASSEMBLYAI_API_KEY = stringPreferencesKey("assemblyai_api_key")
+        const val KEY_DEEPSEEK_API_KEY = "deepseek_api_key"
+        const val KEY_API_BASE_URL = "api_base_url"
+        const val KEY_ASSEMBLYAI_API_KEY = "assemblyai_api_key"
 
         // Privacy
-        val KEY_PRIVACY_CONSENTED = booleanPreferencesKey("privacy_consented")
-        val KEY_CLOUD_PROCESSING_ENABLED = booleanPreferencesKey("cloud_processing_enabled")
+        const val KEY_PRIVACY_CONSENTED = "privacy_consented"
+        const val KEY_CLOUD_PROCESSING_ENABLED = "cloud_processing_enabled"
 
         // Recording Settings
-        val KEY_AUTO_TRANSCRIBE = booleanPreferencesKey("auto_transcribe")
-        val KEY_AUTO_ANALYZE_EMOTION = booleanPreferencesKey("auto_analyze_emotion")
+        const val KEY_AUTO_TRANSCRIBE = "auto_transcribe"
+        const val KEY_AUTO_ANALYZE_EMOTION = "auto_analyze_emotion"
 
         // Defaults
         const val DEFAULT_API_BASE_URL = "https://api.deepseek.com/"
-    }
-
-    // ---- Suspend save functions (for internal / ioScope use) ----
-
-    suspend fun setDeepseekApiKey(key: String) {
-        context.dataStore.edit { it[KEY_DEEPSEEK_API_KEY] = key }
-    }
-
-    suspend fun setApiBaseUrl(url: String) {
-        context.dataStore.edit { it[KEY_API_BASE_URL] = url }
-    }
-
-    suspend fun setAssemblyAiApiKey(key: String) {
-        context.dataStore.edit { it[KEY_ASSEMBLYAI_API_KEY] = key }
-    }
-
-    suspend fun setPrivacyConsented(consented: Boolean) {
-        context.dataStore.edit { it[KEY_PRIVACY_CONSENTED] = consented }
-    }
-
-    suspend fun setCloudProcessingEnabled(enabled: Boolean) {
-        context.dataStore.edit { it[KEY_CLOUD_PROCESSING_ENABLED] = enabled }
-    }
-
-    suspend fun setAutoTranscribe(enabled: Boolean) {
-        context.dataStore.edit { it[KEY_AUTO_TRANSCRIBE] = enabled }
-    }
-
-    suspend fun setAutoAnalyzeEmotion(enabled: Boolean) {
-        context.dataStore.edit { it[KEY_AUTO_ANALYZE_EMOTION] = enabled }
     }
 }

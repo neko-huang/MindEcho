@@ -24,60 +24,37 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.moodecho.app.util.PreferenceManager
-import kotlinx.coroutines.flow.first
 
 /**
  * Settings screen: API configuration, privacy controls, and app information.
- * All settings are persisted via PreferenceManager (DataStore).
  *
- * State management: Uses simple remember + LaunchedEffect for initial load.
- * Every change is saved IMMEDIATELY to DataStore (no debounce, no onDispose).
- * On each composable entry, settings are reloaded from DataStore to guarantee
- * consistency with the persisted state, even when restored from saveState.
+ * State management:
+ * - Uses PreferenceManager.settingsState (StateFlow backed by SharedPreferences)
+ *   for both reading and writing settings.
+ * - collectAsState() provides a reactive State from the StateFlow, which is
+ *   always up-to-date because the StateFlow is updated synchronously on every
+ *   saveXxx() call.
+ * - No LaunchedEffect, no local remember state, no race conditions.
+ * - Every onValueChange writes to SharedPreferences synchronously AND updates
+ *   the StateFlow immediately.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen() {
-    // Use applicationContext to avoid DataStore recreation on Activity rebuild
     val context = LocalContext.current.applicationContext
     val preferenceManager = remember { PreferenceManager(context) }
 
-    // Local editing state — always initialized from DataStore on each entry
-    var apiKey by remember { mutableStateOf("") }
-    var apiBaseUrl by remember { mutableStateOf(PreferenceManager.DEFAULT_API_BASE_URL) }
-    var assemblyAiApiKey by remember { mutableStateOf("") }
-    var cloudProcessingEnabled by remember { mutableStateOf(false) }
-    var autoTranscribe by remember { mutableStateOf(false) }
-    var autoAnalyzeEmotion by remember { mutableStateOf(true) }
-
-    // Load settings from DataStore on every composable entry.
-    // This ensures we always display the latest persisted values, even when
-    // the composable is restored from saveState (which would otherwise restore
-    // stale remember values captured before the previous save completed).
-    LaunchedEffect(Unit) {
-        try {
-            val settings = preferenceManager.allSettings.first()
-            apiKey = settings.deepseekApiKey ?: ""
-            apiBaseUrl = settings.apiBaseUrl
-            assemblyAiApiKey = settings.assemblyAiApiKey ?: ""
-            cloudProcessingEnabled = settings.cloudProcessingEnabled
-            autoTranscribe = settings.autoTranscribe
-            autoAnalyzeEmotion = settings.autoAnalyzeEmotion
-        } catch (_: Exception) {
-            // If DataStore read fails, keep the default empty values
-        }
-    }
+    // Reactive state from the in-memory StateFlow (always up-to-date, no race conditions)
+    val settings by preferenceManager.settingsState.collectAsState()
 
     Scaffold(
         topBar = {
@@ -120,11 +97,8 @@ fun SettingsScreen() {
 
             // DeepSeek API Key input — save immediately on every keystroke
             OutlinedTextField(
-                value = apiKey,
-                onValueChange = {
-                    apiKey = it
-                    preferenceManager.saveDeepseekApiKey(it)
-                },
+                value = settings.deepseekApiKey ?: "",
+                onValueChange = { preferenceManager.saveDeepseekApiKey(it) },
                 label = { Text("DeepSeek API Key") },
                 placeholder = { Text("sk-...") },
                 modifier = Modifier.fillMaxWidth(),
@@ -136,11 +110,8 @@ fun SettingsScreen() {
 
             // API Base URL input — save immediately on every keystroke
             OutlinedTextField(
-                value = apiBaseUrl,
-                onValueChange = {
-                    apiBaseUrl = it
-                    preferenceManager.saveApiBaseUrl(it)
-                },
+                value = settings.apiBaseUrl,
+                onValueChange = { preferenceManager.saveApiBaseUrl(it) },
                 label = { Text("API Base URL") },
                 placeholder = { Text("https://api.deepseek.com/") },
                 modifier = Modifier.fillMaxWidth(),
@@ -176,12 +147,9 @@ fun SettingsScreen() {
                         )
                     }
                     Switch(
-                        checked = cloudProcessingEnabled,
-                        onCheckedChange = {
-                            cloudProcessingEnabled = it
-                            preferenceManager.saveCloudProcessingEnabled(it)
-                        },
-                        enabled = apiKey.isNotBlank()
+                        checked = settings.cloudProcessingEnabled,
+                        onCheckedChange = { preferenceManager.saveCloudProcessingEnabled(it) },
+                        enabled = (settings.deepseekApiKey ?: "").isNotBlank()
                     )
                 }
             }
@@ -214,12 +182,9 @@ fun SettingsScreen() {
                         )
                     }
                     Switch(
-                        checked = autoTranscribe,
-                        onCheckedChange = {
-                            autoTranscribe = it
-                            preferenceManager.saveAutoTranscribe(it)
-                        },
-                        enabled = cloudProcessingEnabled
+                        checked = settings.autoTranscribe,
+                        onCheckedChange = { preferenceManager.saveAutoTranscribe(it) },
+                        enabled = settings.cloudProcessingEnabled
                     )
                 }
             }
@@ -252,11 +217,8 @@ fun SettingsScreen() {
                         )
                     }
                     Switch(
-                        checked = autoAnalyzeEmotion,
-                        onCheckedChange = {
-                            autoAnalyzeEmotion = it
-                            preferenceManager.saveAutoAnalyzeEmotion(it)
-                        }
+                        checked = settings.autoAnalyzeEmotion,
+                        onCheckedChange = { preferenceManager.saveAutoAnalyzeEmotion(it) }
                     )
                 }
             }
@@ -284,11 +246,8 @@ fun SettingsScreen() {
 
             // AssemblyAI API Key input — save immediately on every keystroke
             OutlinedTextField(
-                value = assemblyAiApiKey,
-                onValueChange = {
-                    assemblyAiApiKey = it
-                    preferenceManager.saveAssemblyAiApiKey(it)
-                },
+                value = settings.assemblyAiApiKey ?: "",
+                onValueChange = { preferenceManager.saveAssemblyAiApiKey(it) },
                 label = { Text("AssemblyAI API Key") },
                 placeholder = { Text("Your AssemblyAI API key") },
                 modifier = Modifier.fillMaxWidth(),
