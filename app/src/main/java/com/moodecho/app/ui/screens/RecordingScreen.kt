@@ -318,7 +318,12 @@ fun RecordingScreen(
 
 /**
  * Save the completed recording to the Room database.
- * Creates a RecordingSession, then analyzes the audio file for emotion data points.
+ * Creates a RecordingSession entry and returns its ID.
+ *
+ * Emotion analysis (AAC → WAV conversion, feature extraction, and emotion
+ * classification) is handled separately by
+ * [RecordingService.processRecording] to keep this function focused on
+ * persistence and to allow the analysis to report progress via StateFlows.
  *
  * @param context Android context for accessing app resources
  * @param outputPath Path to the recorded audio file
@@ -353,40 +358,7 @@ private suspend fun saveRecordingToDatabase(
             audioFilePath = outputPath,
             status = SessionStatus.COMPLETED
         )
-        val sessionId = repository.createSession(session)
-
-        // Analyze audio for emotion data points
-        val audioFile = File(outputPath)
-        if (audioFile.exists()) {
-            try {
-                val featureExtractor = AudioFeatureExtractor()
-                val emotionAnalyzer = EmotionAnalyzer()
-
-                val featureVectors = featureExtractor.extractFeatures(audioFile)
-                val emotionResults = emotionAnalyzer.analyze(featureVectors)
-
-                // Convert EmotionResults to EmotionDataPoints and save
-                val emotionDataPoints = emotionResults.map { result ->
-                    EmotionDataPoint(
-                        sessionId = sessionId,
-                        timestamp = result.timestamp,
-                        emotionType = result.emotionType,
-                        confidence = result.confidence,
-                        arousal = result.arousal,
-                        valence = result.valence
-                    )
-                }
-
-                if (emotionDataPoints.isNotEmpty()) {
-                    repository.saveEmotionDataPoints(emotionDataPoints)
-                }
-            } catch (e: Exception) {
-                // Audio analysis failed, but session is still saved
-                // The session can be re-analyzed later
-            }
-        }
-
-        sessionId
+        repository.createSession(session)
     } catch (e: Exception) {
         null
     }
