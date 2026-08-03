@@ -24,20 +24,20 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.moodecho.app.util.PreferenceManager
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /**
@@ -51,47 +51,56 @@ fun SettingsScreen() {
     val preferenceManager = remember { PreferenceManager(context) }
     val scope = rememberCoroutineScope()
 
-    // Local editing state (will be initialized from DataStore)
-    var apiKey by remember { mutableStateOf("") }
-    var apiBaseUrl by remember { mutableStateOf(PreferenceManager.DEFAULT_API_BASE_URL) }
-    var assemblyAiApiKey by remember { mutableStateOf("") }
-    var cloudProcessingEnabled by remember { mutableStateOf(false) }
-    var autoTranscribe by remember { mutableStateOf(false) }
-    var autoAnalyzeEmotion by remember { mutableStateOf(true) }
+    // Load values directly from DataStore as State — reactive and always up-to-date
+    val savedApiKey by preferenceManager.deepseekApiKey.collectAsState(initial = null)
+    val savedApiBaseUrl by preferenceManager.apiBaseUrl.collectAsState(initial = PreferenceManager.DEFAULT_API_BASE_URL)
+    val savedAssemblyAiApiKey by preferenceManager.assemblyAiApiKey.collectAsState(initial = null)
+    val savedCloudProcessing by preferenceManager.isCloudProcessingEnabled.collectAsState(initial = false)
+    val savedAutoTranscribe by preferenceManager.autoTranscribe.collectAsState(initial = false)
+    val savedAutoAnalyzeEmotion by preferenceManager.autoAnalyzeEmotion.collectAsState(initial = true)
 
-    // Track whether initial load is complete to avoid premature saves
-    var loaded by remember { mutableStateOf(false) }
+    // Local editing state — initialized from DataStore once loaded
+    var apiKey by remember { mutableStateOf(savedApiKey ?: "") }
+    var apiBaseUrl by remember { mutableStateOf(savedApiBaseUrl) }
+    var assemblyAiApiKey by remember { mutableStateOf(savedAssemblyAiApiKey ?: "") }
+    var cloudProcessingEnabled by remember { mutableStateOf(savedCloudProcessing) }
+    var autoTranscribe by remember { mutableStateOf(savedAutoTranscribe) }
+    var autoAnalyzeEmotion by remember { mutableStateOf(savedAutoAnalyzeEmotion) }
 
-    // Load saved values from DataStore once
-    LaunchedEffect(Unit) {
-        coroutineScope {
-            launch { apiKey = preferenceManager.deepseekApiKey.first() ?: "" }
-            launch { apiBaseUrl = preferenceManager.apiBaseUrl.first() }
-            launch { assemblyAiApiKey = preferenceManager.assemblyAiApiKey.first() ?: "" }
-            launch { cloudProcessingEnabled = preferenceManager.isCloudProcessingEnabled.first() }
-            launch { autoTranscribe = preferenceManager.autoTranscribe.first() }
-            launch { autoAnalyzeEmotion = preferenceManager.autoAnalyzeEmotion.first() }
+    // Sync local state when DataStore values arrive (first emission)
+    LaunchedEffect(savedApiKey) {
+        if (savedApiKey != null && apiKey.isEmpty()) {
+            apiKey = savedApiKey ?: ""
         }
-        loaded = true
+    }
+    LaunchedEffect(savedAssemblyAiApiKey) {
+        if (savedAssemblyAiApiKey != null && assemblyAiApiKey.isEmpty()) {
+            assemblyAiApiKey = savedAssemblyAiApiKey ?: ""
+        }
     }
 
-    // Debounced save for text fields — save 600ms after user stops typing
+    // Save text fields immediately when user finishes editing (on value change)
     LaunchedEffect(apiKey) {
-        if (loaded) {
-            kotlinx.coroutines.delay(600)
-            preferenceManager.setDeepseekApiKey(apiKey)
-        }
+        preferenceManager.setDeepseekApiKey(apiKey)
     }
     LaunchedEffect(apiBaseUrl) {
-        if (loaded) {
-            kotlinx.coroutines.delay(600)
-            preferenceManager.setApiBaseUrl(apiBaseUrl)
-        }
+        preferenceManager.setApiBaseUrl(apiBaseUrl)
     }
     LaunchedEffect(assemblyAiApiKey) {
-        if (loaded) {
-            kotlinx.coroutines.delay(600)
-            preferenceManager.setAssemblyAiApiKey(assemblyAiApiKey)
+        preferenceManager.setAssemblyAiApiKey(assemblyAiApiKey)
+    }
+
+    // Guarantee save when leaving the screen (composable disposed)
+    DisposableEffect(Unit) {
+        onDispose {
+            scope.launch {
+                preferenceManager.setDeepseekApiKey(apiKey)
+                preferenceManager.setApiBaseUrl(apiBaseUrl)
+                preferenceManager.setAssemblyAiApiKey(assemblyAiApiKey)
+                preferenceManager.setCloudProcessingEnabled(cloudProcessingEnabled)
+                preferenceManager.setAutoTranscribe(autoTranscribe)
+                preferenceManager.setAutoAnalyzeEmotion(autoAnalyzeEmotion)
+            }
         }
     }
 
