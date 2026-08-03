@@ -248,7 +248,7 @@ class RecordingService : Service() {
         manager.notify(NOTIFICATION_ID, notification)
     }
 
-    companion object TranscriptionHelper {
+    object TranscriptionHelper {
 
         /**
          * Transcribe an audio file using AssemblyAI with speaker diarization.
