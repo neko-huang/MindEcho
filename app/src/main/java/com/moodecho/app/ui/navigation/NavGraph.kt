@@ -176,7 +176,14 @@ fun MindEchoNavHost(
                         navController.navigate("report/$date")
                     },
                     onNavigateToSettings = {
-                        navController.navigate(Constants.ROUTE_SETTINGS)
+                        navController.navigate(Constants.ROUTE_SETTINGS) {
+                            // Use same navigation pattern as bottom nav to avoid
+                            // corrupting the back stack state. Without popUpTo + saveState,
+                            // subsequent bottom nav clicks may restore wrong destination.
+                            popUpTo(Constants.ROUTE_HOME) { saveState = true }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
                     }
                 )
             }
