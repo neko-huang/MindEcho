@@ -20,7 +20,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Notes
-import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.Insights
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.Straighten
@@ -725,7 +725,7 @@ private fun AiSummarySection(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
-                imageVector = Icons.Filled.AutoAwesome,
+                imageVector = Icons.Filled.Star,
                 contentDescription = "Summary",
                 tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(24.dp)
@@ -824,7 +824,7 @@ private fun AiSummarySection(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Icon(
-                            imageVector = Icons.Filled.AutoAwesome,
+                            imageVector = Icons.Filled.Star,
                             contentDescription = null,
                             modifier = Modifier.size(18.dp)
                         )
