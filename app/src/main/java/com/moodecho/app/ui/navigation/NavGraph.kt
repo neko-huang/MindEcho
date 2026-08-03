@@ -16,6 +16,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.navigation.NavDestination.Companion.hierarchy
@@ -57,6 +60,17 @@ fun MindEchoNavHost(
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
+
+    // Track whether we should auto-navigate to recording after permission grant
+    var pendingNavigationToRecording by remember { mutableStateOf(false) }
+
+    // Auto-navigate to recording when permissions are granted and we were waiting
+    LaunchedEffect(hasAllPermissions) {
+        if (hasAllPermissions && pendingNavigationToRecording) {
+            pendingNavigationToRecording = false
+            navController.navigate(Constants.ROUTE_RECORDING)
+        }
+    }
 
     // Define bottom navigation items
     val bottomNavItems = listOf(
@@ -114,7 +128,8 @@ fun MindEchoNavHost(
                             // Permissions already granted, navigate to recording
                             navController.navigate(Constants.ROUTE_RECORDING)
                         } else {
-                            // Request permissions first; navigation will happen via LaunchedEffect below
+                            // Request permissions first; auto-navigate after grant
+                            pendingNavigationToRecording = true
                             onRequestPermissions()
                         }
                     },
@@ -125,17 +140,6 @@ fun MindEchoNavHost(
                         navController.navigate("report/$date")
                     }
                 )
-
-                // Auto-navigate to recording when permissions are granted after request
-                if (hasAllPermissions) {
-                    LaunchedEffect(hasAllPermissions) {
-                        // Only navigate if we are still on the home screen
-                        if (currentDestination?.route == Constants.ROUTE_HOME) {
-                            // Don't auto-navigate on first composition when permissions are already granted
-                            // Only navigate when user just clicked the record button
-                        }
-                    }
-                }
             }
 
             // Recording screen: live waveform + emotion detection

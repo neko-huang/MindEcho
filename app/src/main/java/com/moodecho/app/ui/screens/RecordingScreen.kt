@@ -2,13 +2,6 @@ package com.moodecho.app.ui.screens
 
 import android.content.Context
 import android.content.Intent
-import android.os.Build
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -59,6 +52,8 @@ import com.moodecho.app.util.AudioRecorder
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Locale
 
 /**
  * Recording screen: displays live waveform, current emotion, and recording controls.
@@ -298,7 +293,7 @@ private suspend fun saveRecordingToDatabase(
 
         // Create and insert the recording session
         val session = RecordingSession(
-            title = "Recording ${java.text.SimpleDateFormat("MMM dd, HH:mm", java.util.Locale.getDefault()).format(startTime)}",
+            title = "Recording ${SimpleDateFormat("MMM dd, HH:mm", Locale.getDefault()).format(startTime)}",
             startTime = startTime,
             endTime = endTime,
             duration = duration,

@@ -37,7 +37,7 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    MindEchoApp()
+                    MindEchoMainScreen()
                 }
             }
         }
@@ -50,14 +50,14 @@ class MainActivity : ComponentActivity() {
  * down to screens that need it.
  */
 @Composable
-fun MindEchoApp() {
+fun MindEchoMainScreen() {
     val context = LocalContext.current
 
     // Track whether all required permissions have been granted
     var hasAllPermissions by rememberSaveable { mutableStateOf(false) }
 
     // Build the list of permissions we need to request at runtime
-    val requiredPermissions = buildList {
+    val requiredPermissions = mutableListOf<String>().apply {
         add(Manifest.permission.RECORD_AUDIO)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             add(Manifest.permission.POST_NOTIFICATIONS)
