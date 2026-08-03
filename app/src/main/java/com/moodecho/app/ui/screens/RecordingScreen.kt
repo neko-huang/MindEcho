@@ -268,14 +268,14 @@ fun RecordingScreen(
 
                             if (sessionId != null) {
                                 // Run on-device emotion analysis (AAC → WAV → features → emotions → DB)
-                                RecordingService.TranscriptionHelper.processRecording(
+                                RecordingService.processRecording(
                                     context = context,
                                     audioFilePath = outputPath,
                                     sessionId = sessionId
                                 )
 
                                 // Attempt AssemblyAI transcription if configured
-                                RecordingService.TranscriptionHelper.transcribeAudio(
+                                RecordingService.transcribeAudio(
                                     context = context,
                                     audioFilePath = outputPath,
                                     sessionId = sessionId
@@ -322,7 +322,7 @@ fun RecordingScreen(
  *
  * Emotion analysis (AAC → WAV conversion, feature extraction, and emotion
  * classification) is handled separately by
- * [RecordingService.TranscriptionHelper.processRecording] to keep this function focused on
+ * [RecordingService.processRecording] to keep this function focused on
  * persistence and to allow the analysis to report progress via StateFlows.
  *
  * @param context Android context for accessing app resources

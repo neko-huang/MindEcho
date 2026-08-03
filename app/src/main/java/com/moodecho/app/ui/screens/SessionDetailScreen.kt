@@ -514,7 +514,7 @@ private fun EmotionTimelineSection(uiState: SessionDetailUiState) {
             // Detailed list of emotion data points
             uiState.emotionDataPoints.forEach { dataPoint ->
                 EmotionTimelineItem(dataPoint = dataPoint)
-                HorizontalDivider(
+                Divider(
                     modifier = Modifier.padding(vertical = 2.dp),
                     color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
                 )
