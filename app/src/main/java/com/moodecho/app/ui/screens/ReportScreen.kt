@@ -19,10 +19,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.Mood
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Key
 import androidx.compose.material3.Button
@@ -339,7 +339,7 @@ private fun GenerateReportButton(
             )
         ) {
             Icon(
-                imageVector = Icons.Filled.AutoAwesome,
+                imageVector = Icons.Filled.Star,
                 contentDescription = null,
                 modifier = Modifier.size(20.dp)
             )

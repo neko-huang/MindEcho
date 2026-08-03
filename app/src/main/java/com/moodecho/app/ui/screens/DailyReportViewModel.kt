@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.moodecho.app.MindEchoApp
 import com.moodecho.app.data.db.entity.DailyReport
+import com.moodecho.app.data.db.entity.RecordingSession
 import com.moodecho.app.data.repository.RecordingRepository
 import com.moodecho.app.service.DailyReportService
 import com.moodecho.app.service.ReportResult
@@ -27,7 +28,8 @@ data class DailyReportUiState(
     val errorMessage: String? = null,
     val hasApiKey: Boolean = false,
     val sessionCount: Int = 0,
-    val recentReports: List<DailyReport> = emptyList()
+    val recentReports: List<DailyReport> = emptyList(),
+    val initError: Boolean = false
 )
 
 /**
@@ -60,20 +62,27 @@ class DailyReportViewModel(
      */
     fun loadForDate(date: String) {
         viewModelScope.launch {
-            // Check API key status
-            val apiKey = preferenceManager.deepseekApiKey.first() ?: ""
-            _uiState.value = _uiState.value.copy(hasApiKey = apiKey.isNotBlank())
+            try {
+                // Check API key status
+                val apiKey = preferenceManager.deepseekApiKey.first() ?: ""
+                _uiState.value = _uiState.value.copy(hasApiKey = apiKey.isNotBlank())
 
-            // Fetch existing report for this date
-            val report = repository.getReportByDate(date)
+                // Fetch existing report for this date
+                val report = try { repository.getReportByDate(date) } catch (e: Exception) { null }
 
-            // Count sessions for this date
-            val sessions = repository.getSessionsByDate(date)
+                // Count sessions for this date
+                val sessions = try { repository.getSessionsByDate(date) } catch (e: Exception) { emptyList<RecordingSession>() }
 
-            _uiState.value = _uiState.value.copy(
-                report = report,
-                sessionCount = sessions.size
-            )
+                _uiState.value = _uiState.value.copy(
+                    report = report,
+                    sessionCount = sessions.size
+                )
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(
+                    initError = true,
+                    errorMessage = "Failed to load data: ${e.message}"
+                )
+            }
         }
     }
 
@@ -82,8 +91,15 @@ class DailyReportViewModel(
      */
     fun loadRecentReports() {
         viewModelScope.launch {
-            repository.getRecentReports(30).collect { reports ->
-                _uiState.value = _uiState.value.copy(recentReports = reports)
+            try {
+                repository.getRecentReports(30).collect { reports ->
+                    _uiState.value = _uiState.value.copy(recentReports = reports)
+                }
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(
+                    initError = true,
+                    errorMessage = "Failed to load reports: ${e.message}"
+                )
             }
         }
     }
@@ -99,36 +115,43 @@ class DailyReportViewModel(
                 errorMessage = null
             )
 
-            val result = DailyReportService.generateReport(getApplication(), date)
+            try {
+                val result = DailyReportService.generateReport(getApplication(), date)
 
-            when (result) {
-                is ReportResult.Success -> {
-                    _uiState.value = _uiState.value.copy(
-                        isLoading = false,
-                        report = result.report,
-                        errorMessage = null
-                    )
+                when (result) {
+                    is ReportResult.Success -> {
+                        _uiState.value = _uiState.value.copy(
+                            isLoading = false,
+                            report = result.report,
+                            errorMessage = null
+                        )
+                    }
+                    is ReportResult.Error -> {
+                        _uiState.value = _uiState.value.copy(
+                            isLoading = false,
+                            errorMessage = result.message
+                        )
+                    }
+                    is ReportResult.NoData -> {
+                        _uiState.value = _uiState.value.copy(
+                            isLoading = false,
+                            errorMessage = "No recording data found for this date. " +
+                                    "Start recording to generate a report."
+                        )
+                    }
+                    is ReportResult.NoApiKey -> {
+                        _uiState.value = _uiState.value.copy(
+                            isLoading = false,
+                            hasApiKey = false,
+                            errorMessage = null
+                        )
+                    }
                 }
-                is ReportResult.Error -> {
-                    _uiState.value = _uiState.value.copy(
-                        isLoading = false,
-                        errorMessage = result.message
-                    )
-                }
-                is ReportResult.NoData -> {
-                    _uiState.value = _uiState.value.copy(
-                        isLoading = false,
-                        errorMessage = "No recording data found for this date. " +
-                                "Start recording to generate a report."
-                    )
-                }
-                is ReportResult.NoApiKey -> {
-                    _uiState.value = _uiState.value.copy(
-                        isLoading = false,
-                        hasApiKey = false,
-                        errorMessage = null
-                    )
-                }
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(
+                    isLoading = false,
+                    errorMessage = "Report generation failed: ${e.localizedMessage ?: "Unknown error"}"
+                )
             }
         }
     }
