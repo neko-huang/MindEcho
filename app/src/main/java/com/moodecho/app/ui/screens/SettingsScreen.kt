@@ -54,6 +54,7 @@ fun SettingsScreen() {
     // Local editing state (will be initialized from DataStore)
     var apiKey by remember { mutableStateOf("") }
     var apiBaseUrl by remember { mutableStateOf(PreferenceManager.DEFAULT_API_BASE_URL) }
+    var assemblyAiApiKey by remember { mutableStateOf("") }
     var cloudProcessingEnabled by remember { mutableStateOf(false) }
     var autoTranscribe by remember { mutableStateOf(false) }
     var autoAnalyzeEmotion by remember { mutableStateOf(true) }
@@ -66,6 +67,7 @@ fun SettingsScreen() {
         coroutineScope {
             launch { apiKey = preferenceManager.deepseekApiKey.first() ?: "" }
             launch { apiBaseUrl = preferenceManager.apiBaseUrl.first() }
+            launch { assemblyAiApiKey = preferenceManager.assemblyAiApiKey.first() ?: "" }
             launch { cloudProcessingEnabled = preferenceManager.isCloudProcessingEnabled.first() }
             launch { autoTranscribe = preferenceManager.autoTranscribe.first() }
             launch { autoAnalyzeEmotion = preferenceManager.autoAnalyzeEmotion.first() }
@@ -84,6 +86,12 @@ fun SettingsScreen() {
         if (loaded) {
             kotlinx.coroutines.delay(600)
             preferenceManager.setApiBaseUrl(apiBaseUrl)
+        }
+    }
+    LaunchedEffect(assemblyAiApiKey) {
+        if (loaded) {
+            kotlinx.coroutines.delay(600)
+            preferenceManager.setAssemblyAiApiKey(assemblyAiApiKey)
         }
     }
 
@@ -107,9 +115,9 @@ fun SettingsScreen() {
                 .padding(16.dp)
                 .verticalScroll(rememberScrollState())
         ) {
-            // ---- API Configuration Section ----
+            // ---- DeepSeek API Configuration Section ----
             Text(
-                text = "API Configuration",
+                text = "DeepSeek API Configuration",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold
             )
@@ -126,7 +134,7 @@ fun SettingsScreen() {
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // API Key input
+            // DeepSeek API Key input
             OutlinedTextField(
                 value = apiKey,
                 onValueChange = { apiKey = it },
@@ -265,6 +273,38 @@ fun SettingsScreen() {
 
             Spacer(modifier = Modifier.height(32.dp))
 
+            // ---- AssemblyAI Transcription Section ----
+            Text(
+                text = "AssemblyAI Transcription",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            Text(
+                text = "Optional. Configure an AssemblyAI API key to enable cloud-based " +
+                        "speech-to-text with speaker diarization. When configured, recordings " +
+                        "will be automatically transcribed after stopping.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // AssemblyAI API Key input
+            OutlinedTextField(
+                value = assemblyAiApiKey,
+                onValueChange = { assemblyAiApiKey = it },
+                label = { Text("AssemblyAI API Key") },
+                placeholder = { Text("Your AssemblyAI API key") },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                singleLine = true
+            )
+
+            Spacer(modifier = Modifier.height(32.dp))
+
             // ---- Privacy Statement Section ----
             Text(
                 text = "Privacy",
@@ -308,7 +348,7 @@ fun SettingsScreen() {
                     // Privacy points
                     val privacyPoints = listOf(
                         "MindEcho 重视您的隐私。所有录音数据默认仅存储在您的设备上。",
-                        "只有在您主动配置了 DeepSeek API 密钥后，对话内容才会发送到 DeepSeek 进行 AI 分析和报告生成。",
+                        "只有在您主动配置了 API 密钥后，对话内容才会发送到对应的服务（DeepSeek / AssemblyAI）进行分析和转录。",
                         "我们不会收集、上传或分享您的任何个人数据。",
                         "您可以随时删除所有数据。"
                     )

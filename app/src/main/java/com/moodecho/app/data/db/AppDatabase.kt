@@ -26,7 +26,7 @@ import com.moodecho.app.domain.model.EmotionType
         EmotionDataPoint::class,
         DailyReport::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 @TypeConverters(Converters::class)

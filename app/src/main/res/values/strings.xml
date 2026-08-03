@@ -62,6 +62,18 @@
     <string name="settings_auto_emotion">Auto Emotion Analysis</string>
     <string name="settings_auto_emotion_desc">Analyze emotions from audio features after recording</string>
 
+    <!-- AssemblyAI Transcription -->
+    <string name="settings_assemblyai_section">AssemblyAI Transcription</string>
+    <string name="settings_assemblyai_description">Optional. Configure an AssemblyAI API key to enable cloud-based speech-to-text with speaker diarization.</string>
+    <string name="settings_assemblyai_key_label">AssemblyAI API Key</string>
+    <string name="settings_assemblyai_key_placeholder">Your AssemblyAI API key</string>
+    <string name="transcription_uploading">Uploading audio…</string>
+    <string name="transcription_creating">Creating transcript…</string>
+    <string name="transcription_processing">Transcribing…</string>
+    <string name="transcription_complete">Transcription complete</string>
+    <string name="transcription_failed">Transcription failed</string>
+    <string name="transcription_analyzing">Analyzing transcription…</string>
+
     <!-- Privacy -->
     <string name="privacy_title">Privacy Statement</string>
     <string name="privacy_point_1">MindEcho 重视您的隐私。所有录音数据默认仅存储在您的设备上。</string>

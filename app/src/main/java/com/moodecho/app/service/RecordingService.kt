@@ -11,8 +11,20 @@ import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import com.moodecho.app.MainActivity
+import com.moodecho.app.MindEchoApp
 import com.moodecho.app.R
+import com.moodecho.app.analysis.AudioFeatureExtractor
+import com.moodecho.app.analysis.EmotionAnalyzer
+import com.moodecho.app.data.api.AssemblyAiApi
+import com.moodecho.app.data.api.TranscriptRequest
+import com.moodecho.app.data.api.TranscriptResponse
+import com.moodecho.app.data.api.UploadResponse
+import com.moodecho.app.data.db.entity.EmotionDataPoint
+import com.moodecho.app.data.db.entity.TranscriptEntry
+import com.moodecho.app.data.repository.RecordingRepository
+import com.moodecho.app.util.AacWavConverter
 import com.moodecho.app.util.AudioRecorder
+import com.moodecho.app.util.Constants
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -21,6 +33,15 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.OkHttpClient
+import okhttp3.RequestBody.Companion.asRequestBody
+import retrofit2.Retrofit
+import retrofit2.converter.gson.GsonConverterFactory
+import java.io.File
+import java.util.concurrent.TimeUnit
 
 /**
  * Foreground service for audio recording.
@@ -28,6 +49,7 @@ import kotlinx.coroutines.launch
  * Ensures recording continues even when the app is in the background.
  * Displays a persistent notification with recording duration and status.
  * Exposes recording state via StateFlow for UI observation.
+ * After recording stops, optionally transcribes audio via AssemblyAI.
  */
 class RecordingService : Service() {
 
@@ -51,6 +73,20 @@ class RecordingService : Service() {
 
         private val _currentAmplitude = MutableStateFlow(0f)
         val currentAmplitude: StateFlow<Float> = _currentAmplitude.asStateFlow()
+
+        // Transcription state for UI observation
+        private val _isTranscribing = MutableStateFlow(false)
+        val isTranscribing: StateFlow<Boolean> = _isTranscribing.asStateFlow()
+
+        private val _transcriptionStatus = MutableStateFlow("")
+        val transcriptionStatus: StateFlow<String> = _transcriptionStatus.asStateFlow()
+
+        // Emotion analysis state for UI observation
+        private val _isAnalyzing = MutableStateFlow(false)
+        val isAnalyzing: StateFlow<Boolean> = _isAnalyzing.asStateFlow()
+
+        private val _analysisStatus = MutableStateFlow("")
+        val analysisStatus: StateFlow<String> = _analysisStatus.asStateFlow()
     }
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -127,6 +163,7 @@ class RecordingService : Service() {
 
     /**
      * Stop recording and stop the service.
+     * If AssemblyAI key is configured, starts transcription in the background.
      */
     private fun stopRecording() {
         audioRecorder.stop()
@@ -208,5 +245,280 @@ class RecordingService : Service() {
         val notification = createNotification(text)
         val manager = getSystemService(NotificationManager::class.java)
         manager.notify(NOTIFICATION_ID, notification)
+    }
+
+    companion object TranscriptionHelper {
+
+        /**
+         * Transcribe an audio file using AssemblyAI with speaker diarization.
+         * This is a suspend function intended to be called from a coroutine scope.
+         *
+         * @param context Android context
+         * @param audioFilePath Path to the recorded audio file
+         * @param sessionId Database session ID for saving transcript entries
+         * @return True if transcription succeeded, false otherwise
+         */
+        suspend fun transcribeAudio(
+            context: android.content.Context,
+            audioFilePath: String,
+            sessionId: Long
+        ): Boolean {
+            val app = context.applicationContext as MindEchoApp
+            val preferenceManager = com.moodecho.app.util.PreferenceManager(context)
+
+            // Check if AssemblyAI key is configured
+            val apiKey = preferenceManager.assemblyAiApiKey.first() ?: ""
+            if (apiKey.isBlank()) return false
+
+            _isTranscribing.value = true
+            _transcriptionStatus.value = "Uploading audio..."
+
+            try {
+                // Build Retrofit client for AssemblyAI
+                val okHttpClient = OkHttpClient.Builder()
+                    .connectTimeout(60, TimeUnit.SECONDS)
+                    .readTimeout(120, TimeUnit.SECONDS)
+                    .writeTimeout(120, TimeUnit.SECONDS)
+                    .build()
+
+                val retrofit = Retrofit.Builder()
+                    .baseUrl(Constants.ASSEMBLYAI_BASE_URL)
+                    .client(okHttpClient)
+                    .addConverterFactory(GsonConverterFactory.create())
+                    .build()
+
+                val assemblyApi = retrofit.create(AssemblyAiApi::class.java)
+                val authHeader = apiKey
+
+                // Step 1: Upload the audio file
+                val audioFile = File(audioFilePath)
+                if (!audioFile.exists()) {
+                    _isTranscribing.value = false
+                    _transcriptionStatus.value = ""
+                    return false
+                }
+
+                val requestBody = audioFile.asRequestBody("audio/aac".toMediaTypeOrNull())
+                val uploadResponse = assemblyApi.uploadAudio(
+                    url = Constants.ASSEMBLYAI_BASE_URL + "upload",
+                    authorization = authHeader,
+                    file = requestBody
+                )
+
+                if (!uploadResponse.isSuccessful || uploadResponse.body() == null) {
+                    _isTranscribing.value = false
+                    _transcriptionStatus.value = ""
+                    return false
+                }
+
+                val uploadUrl = uploadResponse.body()!!.upload_url
+                _transcriptionStatus.value = "Creating transcript..."
+
+                // Step 2: Create transcript request with speaker diarization
+                val transcriptRequest = TranscriptRequest(
+                    audio_url = uploadUrl,
+                    speaker_labels = true,
+                    language_code = "zh"
+                )
+
+                val createResponse = assemblyApi.createTranscript(
+                    authorization = authHeader,
+                    request = transcriptRequest
+                )
+
+                if (!createResponse.isSuccessful || createResponse.body()?.id == null) {
+                    _isTranscribing.value = false
+                    _transcriptionStatus.value = ""
+                    return false
+                }
+
+                val transcriptId = createResponse.body()!!.id!!
+                _transcriptionStatus.value = "Transcribing..."
+
+                // Step 3: Poll for transcript completion with timeout
+                val result = withTimeoutOrNull(Constants.ASSEMBLYAI_TIMEOUT_MS) {
+                    var response: TranscriptResponse? = null
+                    while (true) {
+                        val pollResponse = assemblyApi.getTranscript(
+                            authorization = authHeader,
+                            transcriptId = transcriptId
+                        )
+
+                        if (pollResponse.isSuccessful) {
+                            response = pollResponse.body()
+                            when (response?.status) {
+                                "completed" -> break
+                                "error" -> break
+                                else -> {
+                                    _transcriptionStatus.value =
+                                        "Transcribing... (${response?.status ?: "processing"})"
+                                }
+                            }
+                        }
+                        kotlinx.coroutines.delay(Constants.ASSEMBLYAI_POLL_INTERVAL_MS)
+                    }
+                    response
+                }
+
+                _isTranscribing.value = false
+
+                if (result == null) {
+                    _transcriptionStatus.value = ""
+                    return false // Timeout
+                }
+
+                if (result.status == "error") {
+                    _transcriptionStatus.value = ""
+                    return false
+                }
+
+                // Step 4: Save transcript entries to the database
+                val db = app.database
+                val repository = RecordingRepository(
+                    sessionDao = db.recordingSessionDao(),
+                    transcriptDao = db.transcriptEntryDao(),
+                    emotionDao = db.emotionDataPointDao(),
+                    reportDao = db.dailyReportDao()
+                )
+
+                if (result.utterances != null && result.utterances.isNotEmpty()) {
+                    // Save utterances with speaker labels as transcript entries
+                    val entries = result.utterances.map { utterance ->
+                        TranscriptEntry(
+                            sessionId = sessionId,
+                            startTime = utterance.start,
+                            endTime = utterance.end,
+                            text = "[说话人${utterance.speaker}] ${utterance.text}"
+                        )
+                    }
+                    repository.saveTranscripts(entries)
+                } else if (!result.text.isNullOrBlank()) {
+                    // Fallback: save full text as a single entry (no speaker labels)
+                    repository.saveTranscript(
+                        TranscriptEntry(
+                            sessionId = sessionId,
+                            startTime = 0,
+                            endTime = 0,
+                            text = result.text
+                        )
+                    )
+                }
+
+                _transcriptionStatus.value = "Transcription complete"
+                kotlinx.coroutines.delay(1500)
+                _transcriptionStatus.value = ""
+                return true
+
+            } catch (e: Exception) {
+                _isTranscribing.value = false
+                _transcriptionStatus.value = ""
+                return false
+            }
+        }
+
+        /**
+         * Check if AssemblyAI key is configured.
+         */
+        suspend fun isAssemblyAiConfigured(context: android.content.Context): Boolean {
+            val preferenceManager = com.moodecho.app.util.PreferenceManager(context)
+            val key = preferenceManager.assemblyAiApiKey.first() ?: ""
+            return key.isNotBlank()
+        }
+
+        /**
+         * Process a recorded audio file for emotion analysis.
+         *
+         * Pipeline:
+         * 1. Convert the AAC recording to WAV (16 kHz, mono, 16-bit PCM)
+         * 2. Extract audio features (RMS energy, zero-crossing rate, etc.)
+         * 3. Analyze features to detect emotions per 5-second window
+         * 4. Save the resulting [EmotionDataPoint]s to the database
+         *
+         * This method runs entirely on-device and does not require network access.
+         * It is safe to call from a coroutine on any dispatcher; CPU-intensive
+         * work is offloaded to [Dispatchers.Default].
+         *
+         * @param context Android context for accessing the database
+         * @param audioFilePath Path to the recorded AAC audio file
+         * @param sessionId Database ID of the [RecordingSession] this audio belongs to
+         * @return `true` if analysis completed successfully, `false` on failure
+         */
+        suspend fun processRecording(
+            context: android.content.Context,
+            audioFilePath: String,
+            sessionId: Long
+        ): Boolean {
+            _isAnalyzing.value = true
+            _analysisStatus.value = "Converting audio..."
+
+            try {
+                val aacFile = File(audioFilePath)
+                if (!aacFile.exists()) {
+                    _isAnalyzing.value = false
+                    _analysisStatus.value = ""
+                    return false
+                }
+
+                // Offload CPU-intensive conversion + analysis to a background thread
+                val success = withContext(Dispatchers.Default) {
+                    // Step 1: Convert AAC → WAV (16 kHz, mono, 16-bit PCM)
+                    val wavFile = File(
+                        aacFile.parentFile,
+                        aacFile.nameWithoutExtension + ".wav"
+                    )
+                    if (!AacWavConverter.convert(aacFile, wavFile)) {
+                        return@withContext false
+                    }
+
+                    _analysisStatus.value = "Analyzing emotions..."
+
+                    // Step 2: Extract audio features from the WAV file
+                    val featureExtractor = AudioFeatureExtractor()
+                    val featureVectors = featureExtractor.extractFeatures(wavFile)
+
+                    // Step 3: Analyze features to detect emotions
+                    val emotionAnalyzer = EmotionAnalyzer()
+                    val emotionResults = emotionAnalyzer.analyze(featureVectors)
+
+                    // Step 4: Save emotion data points to the database
+                    if (emotionResults.isNotEmpty()) {
+                        val app = context.applicationContext as MindEchoApp
+                        val db = app.database
+                        val repository = RecordingRepository(
+                            sessionDao = db.recordingSessionDao(),
+                            transcriptDao = db.transcriptEntryDao(),
+                            emotionDao = db.emotionDataPointDao(),
+                            reportDao = db.dailyReportDao()
+                        )
+
+                        val emotionDataPoints = emotionResults.map { result ->
+                            EmotionDataPoint(
+                                sessionId = sessionId,
+                                timestamp = result.timestamp,
+                                emotionType = result.emotionType,
+                                confidence = result.confidence,
+                                arousal = result.arousal,
+                                valence = result.valence
+                            )
+                        }
+                        repository.saveEmotionDataPoints(emotionDataPoints)
+                    }
+
+                    true
+                }
+
+                _analysisStatus.value = if (success) "Analysis complete" else ""
+                if (success) {
+                    kotlinx.coroutines.delay(800)
+                }
+                _isAnalyzing.value = false
+                _analysisStatus.value = ""
+                return success
+            } catch (e: Exception) {
+                _isAnalyzing.value = false
+                _analysisStatus.value = ""
+                return false
+            }
+        }
     }
 }

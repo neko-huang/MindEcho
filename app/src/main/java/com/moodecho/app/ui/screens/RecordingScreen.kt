@@ -17,6 +17,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
@@ -38,9 +39,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.moodecho.app.MindEchoApp
-import com.moodecho.app.analysis.AudioFeatureExtractor
-import com.moodecho.app.analysis.EmotionAnalyzer
-import com.moodecho.app.data.db.entity.EmotionDataPoint
 import com.moodecho.app.data.db.entity.RecordingSession
 import com.moodecho.app.data.db.entity.SessionStatus
 import com.moodecho.app.data.repository.RecordingRepository
@@ -59,6 +57,7 @@ import java.util.Locale
  * Recording screen: displays live waveform, current emotion, and recording controls.
  * Observes the RecordingService state via shared StateFlows.
  * Starts the RecordingService on entry and sends control Intents for pause/resume/stop.
+ * After stopping, shows transcription progress if AssemblyAI is configured.
  *
  * @param onFinish Callback with session ID when recording is stopped and saved
  * @param onCancel Callback when recording is cancelled
@@ -75,6 +74,14 @@ fun RecordingScreen(
     val isRecording by RecordingService.isRecording.collectAsState()
     val duration by RecordingService.recordingDuration.collectAsState()
     val amplitude by RecordingService.currentAmplitude.collectAsState()
+
+    // Observe transcription state
+    val isTranscribing by RecordingService.isTranscribing.collectAsState()
+    val transcriptionStatus by RecordingService.transcriptionStatus.collectAsState()
+
+    // Observe emotion analysis state
+    val isAnalyzing by RecordingService.isAnalyzing.collectAsState()
+    val analysisStatus by RecordingService.analysisStatus.collectAsState()
 
     // Local UI state
     var isPaused by remember { mutableStateOf(false) }
@@ -116,6 +123,8 @@ fun RecordingScreen(
         // Recording status text
         Text(
             text = when {
+                isTranscribing -> "Analyzing transcription..."
+                isAnalyzing -> analysisStatus.ifBlank { "Analyzing..." }
                 isStopping -> "Saving..."
                 isPaused -> "Paused"
                 isRecording -> "Recording..."
@@ -123,6 +132,8 @@ fun RecordingScreen(
             },
             style = MaterialTheme.typography.labelLarge,
             color = when {
+                isTranscribing -> MaterialTheme.colorScheme.primary
+                isAnalyzing -> MaterialTheme.colorScheme.primary
                 isStopping -> MaterialTheme.colorScheme.tertiary
                 isRecording && !isPaused -> MaterialTheme.colorScheme.error
                 else -> MaterialTheme.colorScheme.onSurfaceVariant
@@ -141,125 +152,167 @@ fun RecordingScreen(
 
         Spacer(modifier = Modifier.height(32.dp))
 
-        // Live waveform animation
-        WaveformAnimation(
-            amplitude = if (isRecording && !isPaused && !isStopping) amplitude else 0f,
-            barCount = 40,
-            modifier = Modifier.fillMaxWidth()
-        )
+        // Live waveform animation or progress indicator
+        if (isTranscribing || isAnalyzing) {
+            // Show progress indicator during transcription or analysis
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(48.dp),
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = when {
+                        isAnalyzing -> analysisStatus.ifBlank { "Analyzing..." }
+                        isTranscribing -> transcriptionStatus.ifBlank { "Transcribing..." }
+                        else -> ""
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center
+                )
+            }
+        } else {
+            // Live waveform animation
+            WaveformAnimation(
+                amplitude = if (isRecording && !isPaused && !isStopping) amplitude else 0f,
+                barCount = 40,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
 
         Spacer(modifier = Modifier.height(32.dp))
 
-        // Current detected emotion
-        Text(
-            text = "Detected Emotion",
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        EmotionChip(
-            emotionType = currentEmotion,
-            confidence = emotionConfidence
-        )
+        // Current detected emotion (hide during transcription/analysis)
+        if (!isTranscribing && !isAnalyzing) {
+            Text(
+                text = "Detected Emotion",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            EmotionChip(
+                emotionType = currentEmotion,
+                confidence = emotionConfidence
+            )
+        }
 
         Spacer(modifier = Modifier.height(48.dp))
 
-        // Recording controls
-        Row(
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // Pause / Resume button
-            FilledIconButton(
-                onClick = {
-                    if (isPaused) {
-                        // Resume recording: send ACTION_RESUME to service
-                        val intent = Intent(context, RecordingService::class.java).apply {
-                            action = RecordingService.ACTION_RESUME
-                        }
-                        ContextCompat.startForegroundService(context, intent)
-                        isPaused = false
-                    } else {
-                        // Pause recording: send ACTION_PAUSE to service
-                        val intent = Intent(context, RecordingService::class.java).apply {
-                            action = RecordingService.ACTION_PAUSE
-                        }
-                        ContextCompat.startForegroundService(context, intent)
-                        isPaused = true
-                    }
-                },
-                modifier = Modifier.size(64.dp),
-                shape = CircleShape,
-                enabled = isRecording && !isStopping,
-                colors = IconButtonDefaults.filledIconButtonColors(
-                    containerColor = MaterialTheme.colorScheme.secondaryContainer
-                )
+        // Recording controls (hide during transcription/analysis)
+        if (!isTranscribing && !isAnalyzing) {
+            Row(
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    imageVector = if (isPaused) Icons.Filled.PlayArrow else Icons.Filled.Pause,
-                    contentDescription = if (isPaused) "Resume" else "Pause",
-                    modifier = Modifier.size(32.dp)
-                )
-            }
-
-            Spacer(modifier = Modifier.width(32.dp))
-
-            // Stop button
-            FilledIconButton(
-                onClick = {
-                    if (isStopping) return@FilledIconButton
-                    isStopping = true
-
-                    scope.launch {
-                        // Send STOP intent to RecordingService
-                        val stopIntent = Intent(context, RecordingService::class.java).apply {
-                            action = RecordingService.ACTION_STOP
-                        }
-                        ContextCompat.startForegroundService(context, stopIntent)
-
-                        // Wait for the service to stop recording
-                        delay(500)
-
-                        // Save the recording session to the database
-                        val sessionId = saveRecordingToDatabase(
-                            context = context,
-                            outputPath = outputPath,
-                            startTime = sessionStartTime,
-                            duration = duration
-                        )
-
-                        if (sessionId != null) {
-                            onFinish(sessionId)
+                // Pause / Resume button
+                FilledIconButton(
+                    onClick = {
+                        if (isPaused) {
+                            // Resume recording: send ACTION_RESUME to service
+                            val intent = Intent(context, RecordingService::class.java).apply {
+                                action = RecordingService.ACTION_RESUME
+                            }
+                            ContextCompat.startForegroundService(context, intent)
+                            isPaused = false
                         } else {
-                            onCancel()
+                            // Pause recording: send ACTION_PAUSE to service
+                            val intent = Intent(context, RecordingService::class.java).apply {
+                                action = RecordingService.ACTION_PAUSE
+                            }
+                            ContextCompat.startForegroundService(context, intent)
+                            isPaused = true
                         }
-                    }
-                },
-                modifier = Modifier.size(72.dp),
-                shape = CircleShape,
-                enabled = isRecording && !isStopping,
-                colors = IconButtonDefaults.filledIconButtonColors(
-                    containerColor = MaterialTheme.colorScheme.error
-                )
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.Stop,
-                    contentDescription = "Stop Recording",
-                    modifier = Modifier.size(36.dp),
-                    tint = MaterialTheme.colorScheme.onError
-                )
+                    },
+                    modifier = Modifier.size(64.dp),
+                    shape = CircleShape,
+                    enabled = isRecording && !isStopping,
+                    colors = IconButtonDefaults.filledIconButtonColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer
+                    )
+                ) {
+                    Icon(
+                        imageVector = if (isPaused) Icons.Filled.PlayArrow else Icons.Filled.Pause,
+                        contentDescription = if (isPaused) "Resume" else "Pause",
+                        modifier = Modifier.size(32.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(32.dp))
+
+                // Stop button
+                FilledIconButton(
+                    onClick = {
+                        if (isStopping) return@FilledIconButton
+                        isStopping = true
+
+                        scope.launch {
+                            // Send STOP intent to RecordingService
+                            val stopIntent = Intent(context, RecordingService::class.java).apply {
+                                action = RecordingService.ACTION_STOP
+                            }
+                            ContextCompat.startForegroundService(context, stopIntent)
+
+                            // Wait for the service to stop recording
+                            delay(500)
+
+                            // Save the recording session to the database
+                            val sessionId = saveRecordingToDatabase(
+                                context = context,
+                                outputPath = outputPath,
+                                startTime = sessionStartTime,
+                                duration = duration
+                            )
+
+                            if (sessionId != null) {
+                                // Run on-device emotion analysis (AAC → WAV → features → emotions → DB)
+                                RecordingService.processRecording(
+                                    context = context,
+                                    audioFilePath = outputPath,
+                                    sessionId = sessionId
+                                )
+
+                                // Attempt AssemblyAI transcription if configured
+                                RecordingService.transcribeAudio(
+                                    context = context,
+                                    audioFilePath = outputPath,
+                                    sessionId = sessionId
+                                )
+
+                                onFinish(sessionId)
+                            } else {
+                                onCancel()
+                            }
+                        }
+                    },
+                    modifier = Modifier.size(72.dp),
+                    shape = CircleShape,
+                    enabled = isRecording && !isStopping,
+                    colors = IconButtonDefaults.filledIconButtonColors(
+                        containerColor = MaterialTheme.colorScheme.error
+                    )
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Stop,
+                        contentDescription = "Stop Recording",
+                        modifier = Modifier.size(36.dp),
+                        tint = MaterialTheme.colorScheme.onError
+                    )
+                }
             }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Hint text
+            Text(
+                text = if (isStopping) "Saving recording..." else "Tap stop to finish recording",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
+            )
         }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Hint text
-        Text(
-            text = if (isStopping) "Saving recording..." else "Tap stop to finish recording",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center
-        )
     }
 }
 

@@ -57,6 +57,9 @@ interface TranscriptEntryDao {
     @Query("SELECT * FROM transcript_entries WHERE sessionId = :sessionId ORDER BY startTime ASC")
     fun getTranscriptsForSession(sessionId: Long): Flow<List<TranscriptEntry>>
 
+    @Query("SELECT * FROM transcript_entries WHERE sessionId = :sessionId ORDER BY startTime ASC")
+    suspend fun getTranscriptsForSessionSync(sessionId: Long): List<TranscriptEntry>
+
     @Query("DELETE FROM transcript_entries WHERE sessionId = :sessionId")
     suspend fun deleteForSession(sessionId: Long)
 }
@@ -75,6 +78,9 @@ interface EmotionDataPointDao {
 
     @Query("SELECT * FROM emotion_data_points WHERE sessionId = :sessionId ORDER BY timestamp ASC")
     fun getEmotionsForSession(sessionId: Long): Flow<List<EmotionDataPoint>>
+
+    @Query("SELECT * FROM emotion_data_points WHERE sessionId = :sessionId ORDER BY timestamp ASC")
+    suspend fun getEmotionsForSessionSync(sessionId: Long): List<EmotionDataPoint>
 
     @Query("SELECT emotionType FROM emotion_data_points WHERE sessionId = :sessionId GROUP BY emotionType ORDER BY COUNT(*) DESC LIMIT 1")
     suspend fun getDominantEmotionForSession(sessionId: Long): String?

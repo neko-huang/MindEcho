@@ -77,6 +77,11 @@ class RecordingRepository(
         return transcriptDao.getTranscriptsForSession(sessionId)
     }
 
+    /** Get all transcript entries for a session (suspend, one-shot) */
+    suspend fun getTranscriptsForSessionSync(sessionId: Long): List<TranscriptEntry> {
+        return transcriptDao.getTranscriptsForSessionSync(sessionId)
+    }
+
     // ---- Emotion data operations ----
 
     /** Save a single emotion data point */
@@ -92,6 +97,11 @@ class RecordingRepository(
     /** Get all emotion data points for a session */
     fun getEmotionsForSession(sessionId: Long): Flow<List<EmotionDataPoint>> {
         return emotionDao.getEmotionsForSession(sessionId)
+    }
+
+    /** Get all emotion data points for a session (suspend, one-shot) */
+    suspend fun getEmotionsForSessionSync(sessionId: Long): List<EmotionDataPoint> {
+        return emotionDao.getEmotionsForSessionSync(sessionId)
     }
 
     /** Get the dominant emotion for a session */
@@ -124,5 +134,10 @@ class RecordingRepository(
     /** Get the most recent reports */
     fun getRecentReports(limit: Int = 7): Flow<List<DailyReport>> {
         return reportDao.getRecentReports(limit)
+    }
+
+    /** Delete a daily report */
+    suspend fun deleteReport(report: DailyReport) {
+        reportDao.delete(report)
     }
 }

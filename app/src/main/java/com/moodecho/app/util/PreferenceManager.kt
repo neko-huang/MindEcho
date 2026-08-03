@@ -24,6 +24,7 @@ class PreferenceManager(private val context: Context) {
         // API Configuration
         val KEY_DEEPSEEK_API_KEY = stringPreferencesKey("deepseek_api_key")
         val KEY_API_BASE_URL = stringPreferencesKey("api_base_url")
+        val KEY_ASSEMBLYAI_API_KEY = stringPreferencesKey("assemblyai_api_key")
 
         // Privacy
         val KEY_PRIVACY_CONSENTED = booleanPreferencesKey("privacy_consented")
@@ -60,6 +61,18 @@ class PreferenceManager(private val context: Context) {
     suspend fun setApiBaseUrl(url: String) {
         context.dataStore.edit { prefs ->
             prefs[KEY_API_BASE_URL] = url
+        }
+    }
+
+    /** Get the configured AssemblyAI API key */
+    val assemblyAiApiKey: Flow<String?> = context.dataStore.data.map { prefs ->
+        prefs[KEY_ASSEMBLYAI_API_KEY]
+    }
+
+    /** Save the AssemblyAI API key */
+    suspend fun setAssemblyAiApiKey(key: String) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_ASSEMBLYAI_API_KEY] = key
         }
     }
 

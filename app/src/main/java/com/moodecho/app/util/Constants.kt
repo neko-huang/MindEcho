@@ -7,7 +7,7 @@ object Constants {
 
     // ---- Database ----
     const val DATABASE_NAME = "mindecho_database"
-    const val DATABASE_VERSION = 1
+    const val DATABASE_VERSION = 2
 
     // ---- Audio ----
     const val SAMPLE_RATE = 44100
@@ -27,6 +27,11 @@ object Constants {
     const val WHISPER_MODEL = "whisper-1"  // OpenAI Whisper (not available on DeepSeek; requires separate OpenAI key)
     const val LLM_MODEL = "deepseek-chat"
 
+    // ---- AssemblyAI ----
+    const val ASSEMBLYAI_BASE_URL = "https://api.assemblyai.com/v2/"
+    const val ASSEMBLYAI_TIMEOUT_MS = 300_000L      // 5 minutes
+    const val ASSEMBLYAI_POLL_INTERVAL_MS = 5_000L   // 5 seconds
+
     // ---- File Storage ----
     const val RECORDINGS_DIR = "recordings"
     const val REPORTS_DIR = "reports"
@@ -35,6 +40,7 @@ object Constants {
     const val ROUTE_HOME = "home"
     const val ROUTE_RECORDING = "recording"
     const val ROUTE_HISTORY = "history"
+    const val ROUTE_REPORT_TAB = "report_tab"
     const val ROUTE_SESSION_DETAIL = "session/{id}"
     const val ROUTE_REPORT = "report/{date}"
     const val ROUTE_SETTINGS = "settings"

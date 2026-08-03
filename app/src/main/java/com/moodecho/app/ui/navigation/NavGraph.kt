@@ -2,9 +2,11 @@ package com.moodecho.app.ui.navigation
 
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.outlined.Assessment
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Settings
@@ -32,6 +34,7 @@ import com.moodecho.app.ui.screens.HistoryScreen
 import com.moodecho.app.ui.screens.HomeScreen
 import com.moodecho.app.ui.screens.RecordingScreen
 import com.moodecho.app.ui.screens.ReportScreen
+import com.moodecho.app.ui.screens.ReportTabScreen
 import com.moodecho.app.ui.screens.SessionDetailScreen
 import com.moodecho.app.ui.screens.SettingsScreen
 import com.moodecho.app.util.Constants
@@ -76,6 +79,7 @@ fun MindEchoNavHost(
     val bottomNavItems = listOf(
         BottomNavItem(Constants.ROUTE_HOME, "Home", Icons.Filled.Home, Icons.Outlined.Home),
         BottomNavItem(Constants.ROUTE_HISTORY, "History", Icons.Filled.History, Icons.Outlined.History),
+        BottomNavItem(Constants.ROUTE_REPORT_TAB, "Report", Icons.Filled.Assessment, Icons.Outlined.Assessment),
         BottomNavItem(Constants.ROUTE_SETTINGS, "Settings", Icons.Filled.Settings, Icons.Outlined.Settings)
     )
 
@@ -165,6 +169,18 @@ fun MindEchoNavHost(
                 )
             }
 
+            // Report tab screen: daily report with generate button
+            composable(Constants.ROUTE_REPORT_TAB) {
+                ReportTabScreen(
+                    onReportClick = { date ->
+                        navController.navigate("report/$date")
+                    },
+                    onNavigateToSettings = {
+                        navController.navigate(Constants.ROUTE_SETTINGS)
+                    }
+                )
+            }
+
             // Session detail screen: transcript + emotion timeline
             composable(
                 route = Constants.ROUTE_SESSION_DETAIL,
@@ -177,7 +193,7 @@ fun MindEchoNavHost(
                 )
             }
 
-            // Report screen: emotion statistics + suggestions
+            // Report screen for a specific date: emotion statistics + suggestions
             composable(
                 route = Constants.ROUTE_REPORT,
                 arguments = listOf(navArgument("date") { type = NavType.StringType })
