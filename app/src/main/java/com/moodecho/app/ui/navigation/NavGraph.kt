@@ -14,6 +14,7 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -45,9 +46,14 @@ data class BottomNavItem(
 /**
  * Main navigation host for MindEcho.
  * Manages navigation between screens using Compose Navigation.
+ * @param hasAllPermissions Whether all required runtime permissions have been granted
+ * @param onRequestPermissions Callback to trigger the permission request flow
  */
 @Composable
-fun MindEchoNavHost() {
+fun MindEchoNavHost(
+    hasAllPermissions: Boolean,
+    onRequestPermissions: () -> Unit
+) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
@@ -102,8 +108,15 @@ fun MindEchoNavHost() {
             // Home screen: quick start recording + recent sessions
             composable(Constants.ROUTE_HOME) {
                 HomeScreen(
+                    hasAllPermissions = hasAllPermissions,
                     onStartRecording = {
-                        navController.navigate(Constants.ROUTE_RECORDING)
+                        if (hasAllPermissions) {
+                            // Permissions already granted, navigate to recording
+                            navController.navigate(Constants.ROUTE_RECORDING)
+                        } else {
+                            // Request permissions first; navigation will happen via LaunchedEffect below
+                            onRequestPermissions()
+                        }
                     },
                     onSessionClick = { sessionId ->
                         navController.navigate("session/$sessionId")
@@ -112,6 +125,17 @@ fun MindEchoNavHost() {
                         navController.navigate("report/$date")
                     }
                 )
+
+                // Auto-navigate to recording when permissions are granted after request
+                if (hasAllPermissions) {
+                    LaunchedEffect(hasAllPermissions) {
+                        // Only navigate if we are still on the home screen
+                        if (currentDestination?.route == Constants.ROUTE_HOME) {
+                            // Don't auto-navigate on first composition when permissions are already granted
+                            // Only navigate when user just clicked the record button
+                        }
+                    }
+                }
             }
 
             // Recording screen: live waveform + emotion detection

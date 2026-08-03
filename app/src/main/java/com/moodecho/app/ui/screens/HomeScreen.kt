@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Mic
@@ -29,7 +28,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -38,10 +36,13 @@ import com.moodecho.app.ui.components.SessionCard
 
 /**
  * Home screen: quick start recording + recent sessions + today's mood overview.
+ * @param hasAllPermissions Whether all required runtime permissions have been granted
+ * @param onStartRecording Callback to start recording (handles permission check internally)
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
+    hasAllPermissions: Boolean,
     onStartRecording: () -> Unit,
     onSessionClick: (Long) -> Unit,
     onReportClick: (String) -> Unit
@@ -114,7 +115,7 @@ fun HomeScreen(
             Spacer(modifier = Modifier.height(8.dp))
 
             Text(
-                text = "Tap to start recording",
+                text = if (hasAllPermissions) "Tap to start recording" else "Tap to grant permissions & record",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center
