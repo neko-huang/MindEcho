@@ -67,10 +67,12 @@ data class ResponseFormat(
  * Request body for chat completion API.
  */
 data class ChatCompletionRequest(
-    val model: String = "deepseek-chat",
+    val model: String = "deepseek-v4-flash",
     val messages: List<ChatMessage>,
-    val temperature: Double = 0.7,
-    val max_tokens: Int = 1000,
+    val temperature: Double = 1.0,
+    val top_p: Double = 0.95,
+    val max_tokens: Int = 5000,
+    val reasoning_effort: String? = "max",
     val response_format: ResponseFormat? = null
 )
 

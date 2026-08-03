@@ -109,4 +109,7 @@ interface DailyReportDao {
 
     @Delete
     suspend fun delete(report: DailyReport)
+
+    @Query("DELETE FROM daily_reports WHERE id = :id")
+    suspend fun deleteById(id: Long)
 }

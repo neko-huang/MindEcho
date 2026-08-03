@@ -25,7 +25,7 @@ object Constants {
     // ---- API ----
     const val DEFAULT_API_BASE_URL = "https://api.deepseek.com/"
     const val WHISPER_MODEL = "whisper-1"  // OpenAI Whisper (not available on DeepSeek; requires separate OpenAI key)
-    const val LLM_MODEL = "deepseek-chat"
+    const val LLM_MODEL = "deepseek-v4-flash"
 
     // ---- AssemblyAI ----
     const val ASSEMBLYAI_BASE_URL = "https://api.assemblyai.com/v2/"

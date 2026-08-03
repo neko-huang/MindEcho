@@ -280,8 +280,10 @@ class SessionDetailViewModel(
                             content = prompt
                         )
                     ),
-                    temperature = 0.7,
-                    max_tokens = 800
+                    temperature = 1.0,
+                    top_p = 0.95,
+                    max_tokens = 5000,
+                    reasoning_effort = "max"
                 )
 
                 val response = llmApi.chatCompletion(

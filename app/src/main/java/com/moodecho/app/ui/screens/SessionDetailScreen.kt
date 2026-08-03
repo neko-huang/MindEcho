@@ -227,17 +227,20 @@ private fun SessionInfoBar(uiState: SessionDetailUiState) {
                 InfoItem(
                     icon = Icons.Outlined.Schedule,
                     label = "Date",
-                    value = uiState.formattedDate
+                    value = uiState.formattedDate,
+                    modifier = Modifier.weight(1f)
                 )
                 InfoItem(
                     icon = Icons.Outlined.Straighten,
                     label = "Duration",
-                    value = uiState.formattedDuration
+                    value = uiState.formattedDuration,
+                    modifier = Modifier.weight(1f)
                 )
                 InfoItem(
                     icon = Icons.Outlined.TextSnippet,
                     label = "File Size",
-                    value = uiState.formattedFileSize
+                    value = uiState.formattedFileSize,
+                    modifier = Modifier.weight(1f)
                 )
             }
         }
@@ -246,16 +249,18 @@ private fun SessionInfoBar(uiState: SessionDetailUiState) {
 
 /**
  * A single metadata item with an icon, label, and value.
+ * The [modifier] parameter should include weight when used inside a Row.
  */
 @Composable
 private fun InfoItem(
     icon: ImageVector,
     label: String,
-    value: String
+    value: String,
+    modifier: Modifier = Modifier
 ) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.weight(1f)
+        modifier = modifier
     ) {
         Icon(
             imageVector = icon,
@@ -509,7 +514,7 @@ private fun EmotionTimelineSection(uiState: SessionDetailUiState) {
             // Detailed list of emotion data points
             uiState.emotionDataPoints.forEach { dataPoint ->
                 EmotionTimelineItem(dataPoint = dataPoint)
-                HorizontalDivider(
+                Divider(
                     modifier = Modifier.padding(vertical = 2.dp),
                     color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
                 )

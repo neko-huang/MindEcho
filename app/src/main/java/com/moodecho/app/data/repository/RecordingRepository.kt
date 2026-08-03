@@ -140,4 +140,9 @@ class RecordingRepository(
     suspend fun deleteReport(report: DailyReport) {
         reportDao.delete(report)
     }
+
+    /** Delete a daily report by its ID */
+    suspend fun deleteReportById(id: Long) {
+        reportDao.deleteById(id)
+    }
 }

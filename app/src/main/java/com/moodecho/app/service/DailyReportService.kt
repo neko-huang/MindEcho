@@ -238,8 +238,10 @@ object DailyReportService {
                     ChatMessage(role = "system", content = systemPrompt),
                     ChatMessage(role = "user", content = userContent)
                 ),
-                temperature = 0.7,
-                max_tokens = 1500,
+                temperature = 1.0,
+                top_p = 0.95,
+                max_tokens = 5000,
+                reasoning_effort = "max",
                 response_format = ResponseFormat(type = "json_object")
             )
 
