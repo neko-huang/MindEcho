@@ -14,6 +14,9 @@ import kotlinx.coroutines.launch
 /**
  * Manages app preferences using DataStore (modern replacement for SharedPreferences).
  * Stores API keys, privacy consent, and user settings.
+ *
+ * Performance: All settings are read in a single DataStore subscription via [allSettings],
+ * avoiding multiple disk reads. Saves use a persistent ioScope that survives composable disposal.
  */
 class PreferenceManager(private val context: Context) {
 
@@ -26,7 +29,42 @@ class PreferenceManager(private val context: Context) {
         kotlinx.coroutines.Dispatchers.IO + kotlinx.coroutines.SupervisorJob()
     )
 
-    /** Fire-and-forget save that survives composable disposal */
+    // ---- Unified Settings State (single DataStore read) ----
+
+    /** Snapshot of all user settings — read once from a single DataStore subscription */
+    data class SettingsState(
+        val deepseekApiKey: String? = null,
+        val apiBaseUrl: String = DEFAULT_API_BASE_URL,
+        val assemblyAiApiKey: String? = null,
+        val cloudProcessingEnabled: Boolean = false,
+        val autoTranscribe: Boolean = false,
+        val autoAnalyzeEmotion: Boolean = true
+    )
+
+    /** Single Flow that reads all settings at once — replaces 6 separate flows */
+    val allSettings: Flow<SettingsState> = context.dataStore.data.map { prefs ->
+        SettingsState(
+            deepseekApiKey = prefs[KEY_DEEPSEEK_API_KEY],
+            apiBaseUrl = prefs[KEY_API_BASE_URL] ?: DEFAULT_API_BASE_URL,
+            assemblyAiApiKey = prefs[KEY_ASSEMBLYAI_API_KEY],
+            cloudProcessingEnabled = prefs[KEY_CLOUD_PROCESSING_ENABLED] ?: false,
+            autoTranscribe = prefs[KEY_AUTO_TRANSCRIBE] ?: false,
+            autoAnalyzeEmotion = prefs[KEY_AUTO_ANALYZE_EMOTION] ?: true
+        )
+    }
+
+    // ---- Legacy individual flows (kept for backward compatibility in non-UI code) ----
+
+    val deepseekApiKey: Flow<String?> = context.dataStore.data.map { it[KEY_DEEPSEEK_API_KEY] }
+    val apiBaseUrl: Flow<String> = context.dataStore.data.map { it[KEY_API_BASE_URL] ?: DEFAULT_API_BASE_URL }
+    val assemblyAiApiKey: Flow<String?> = context.dataStore.data.map { it[KEY_ASSEMBLYAI_API_KEY] }
+    val isCloudProcessingEnabled: Flow<Boolean> = context.dataStore.data.map { it[KEY_CLOUD_PROCESSING_ENABLED] ?: false }
+    val autoTranscribe: Flow<Boolean> = context.dataStore.data.map { it[KEY_AUTO_TRANSCRIBE] ?: false }
+    val autoAnalyzeEmotion: Flow<Boolean> = context.dataStore.data.map { it[KEY_AUTO_ANALYZE_EMOTION] ?: true }
+    val hasPrivacyConsent: Flow<Boolean> = context.dataStore.data.map { it[KEY_PRIVACY_CONSENTED] ?: false }
+
+    // ---- Fire-and-forget saves (survive composable disposal) ----
+
     fun saveDeepseekApiKey(key: String) {
         ioScope.launch { setDeepseekApiKey(key) }
     }
@@ -51,7 +89,7 @@ class PreferenceManager(private val context: Context) {
         ioScope.launch { setAutoAnalyzeEmotion(enabled) }
     }
 
-    /** Save all settings at once (for disposal) */
+    /** Save all settings in a single DataStore transaction */
     fun saveAll(
         deepseekApiKey: String,
         apiBaseUrl: String,
@@ -61,12 +99,14 @@ class PreferenceManager(private val context: Context) {
         autoAnalyzeEmotion: Boolean
     ) {
         ioScope.launch {
-            setDeepseekApiKey(deepseekApiKey)
-            setApiBaseUrl(apiBaseUrl)
-            setAssemblyAiApiKey(assemblyAiApiKey)
-            setCloudProcessingEnabled(cloudProcessingEnabled)
-            setAutoTranscribe(autoTranscribe)
-            setAutoAnalyzeEmotion(autoAnalyzeEmotion)
+            context.dataStore.edit { prefs ->
+                prefs[KEY_DEEPSEEK_API_KEY] = deepseekApiKey
+                prefs[KEY_API_BASE_URL] = apiBaseUrl
+                prefs[KEY_ASSEMBLYAI_API_KEY] = assemblyAiApiKey
+                prefs[KEY_CLOUD_PROCESSING_ENABLED] = cloudProcessingEnabled
+                prefs[KEY_AUTO_TRANSCRIBE] = autoTranscribe
+                prefs[KEY_AUTO_ANALYZE_EMOTION] = autoAnalyzeEmotion
+            }
         }
     }
 
@@ -88,93 +128,33 @@ class PreferenceManager(private val context: Context) {
         const val DEFAULT_API_BASE_URL = "https://api.deepseek.com/"
     }
 
-    // ---- API Configuration ----
+    // ---- Suspend save functions (for internal / ioScope use) ----
 
-    /** Get the configured DeepSeek API key */
-    val deepseekApiKey: Flow<String?> = context.dataStore.data.map { prefs ->
-        prefs[KEY_DEEPSEEK_API_KEY]
-    }
-
-    /** Get the configured API base URL */
-    val apiBaseUrl: Flow<String> = context.dataStore.data.map { prefs ->
-        prefs[KEY_API_BASE_URL] ?: DEFAULT_API_BASE_URL
-    }
-
-    /** Save the DeepSeek API key */
     suspend fun setDeepseekApiKey(key: String) {
-        context.dataStore.edit { prefs ->
-            prefs[KEY_DEEPSEEK_API_KEY] = key
-        }
+        context.dataStore.edit { it[KEY_DEEPSEEK_API_KEY] = key }
     }
 
-    /** Save the API base URL */
     suspend fun setApiBaseUrl(url: String) {
-        context.dataStore.edit { prefs ->
-            prefs[KEY_API_BASE_URL] = url
-        }
+        context.dataStore.edit { it[KEY_API_BASE_URL] = url }
     }
 
-    /** Get the configured AssemblyAI API key */
-    val assemblyAiApiKey: Flow<String?> = context.dataStore.data.map { prefs ->
-        prefs[KEY_ASSEMBLYAI_API_KEY]
-    }
-
-    /** Save the AssemblyAI API key */
     suspend fun setAssemblyAiApiKey(key: String) {
-        context.dataStore.edit { prefs ->
-            prefs[KEY_ASSEMBLYAI_API_KEY] = key
-        }
+        context.dataStore.edit { it[KEY_ASSEMBLYAI_API_KEY] = key }
     }
 
-    // ---- Privacy ----
-
-    /** Whether the user has consented to the privacy policy */
-    val hasPrivacyConsent: Flow<Boolean> = context.dataStore.data.map { prefs ->
-        prefs[KEY_PRIVACY_CONSENTED] ?: false
-    }
-
-    /** Whether cloud processing is enabled (requires API key) */
-    val isCloudProcessingEnabled: Flow<Boolean> = context.dataStore.data.map { prefs ->
-        prefs[KEY_CLOUD_PROCESSING_ENABLED] ?: false
-    }
-
-    /** Set privacy consent status */
     suspend fun setPrivacyConsented(consented: Boolean) {
-        context.dataStore.edit { prefs ->
-            prefs[KEY_PRIVACY_CONSENTED] = consented
-        }
+        context.dataStore.edit { it[KEY_PRIVACY_CONSENTED] = consented }
     }
 
-    /** Enable or disable cloud processing */
     suspend fun setCloudProcessingEnabled(enabled: Boolean) {
-        context.dataStore.edit { prefs ->
-            prefs[KEY_CLOUD_PROCESSING_ENABLED] = enabled
-        }
+        context.dataStore.edit { it[KEY_CLOUD_PROCESSING_ENABLED] = enabled }
     }
 
-    // ---- Recording Settings ----
-
-    /** Whether to auto-transcribe recordings */
-    val autoTranscribe: Flow<Boolean> = context.dataStore.data.map { prefs ->
-        prefs[KEY_AUTO_TRANSCRIBE] ?: false
-    }
-
-    /** Whether to auto-analyze emotions */
-    val autoAnalyzeEmotion: Flow<Boolean> = context.dataStore.data.map { prefs ->
-        prefs[KEY_AUTO_ANALYZE_EMOTION] ?: true
-    }
-
-    /** Set auto-transcribe preference */
     suspend fun setAutoTranscribe(enabled: Boolean) {
-        context.dataStore.edit { prefs ->
-            prefs[KEY_AUTO_TRANSCRIBE] = enabled
-        }
+        context.dataStore.edit { it[KEY_AUTO_TRANSCRIBE] = enabled }
     }
 
-    /** Set auto-analyze emotion preference */
     suspend fun setAutoAnalyzeEmotion(enabled: Boolean) {
-        context.dataStore.edit { prefs ->
-            prefs[KEY_AUTO_ANALYZE_EMOTION] = enabled
-        }
+        context.dataStore.edit { it[KEY_AUTO_ANALYZE_EMOTION] = enabled }
     }
 }

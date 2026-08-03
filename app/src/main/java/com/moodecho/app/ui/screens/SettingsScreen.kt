@@ -37,10 +37,14 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.moodecho.app.util.PreferenceManager
+import kotlinx.coroutines.delay
 
 /**
  * Settings screen: API configuration, privacy controls, and app information.
  * All settings are persisted via PreferenceManager (DataStore).
+ *
+ * Performance: Uses a single DataStore subscription (allSettings) instead of 6 separate flows.
+ * Text field saves are debounced (500ms after last keystroke) to avoid excessive disk writes.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -48,47 +52,56 @@ fun SettingsScreen() {
     val context = LocalContext.current
     val preferenceManager = remember { PreferenceManager(context) }
 
-    // Load values directly from DataStore as State — reactive and always up-to-date
-    val savedApiKey by preferenceManager.deepseekApiKey.collectAsState(initial = null)
-    val savedApiBaseUrl by preferenceManager.apiBaseUrl.collectAsState(initial = PreferenceManager.DEFAULT_API_BASE_URL)
-    val savedAssemblyAiApiKey by preferenceManager.assemblyAiApiKey.collectAsState(initial = null)
-    val savedCloudProcessing by preferenceManager.isCloudProcessingEnabled.collectAsState(initial = false)
-    val savedAutoTranscribe by preferenceManager.autoTranscribe.collectAsState(initial = false)
-    val savedAutoAnalyzeEmotion by preferenceManager.autoAnalyzeEmotion.collectAsState(initial = true)
+    // Single DataStore read — replaces 6 separate collectAsState calls
+    val settings by preferenceManager.allSettings.collectAsState(
+        initial = PreferenceManager.SettingsState()
+    )
 
-    // Local editing state — initialized from DataStore once loaded
-    var apiKey by remember { mutableStateOf(savedApiKey ?: "") }
-    var apiBaseUrl by remember { mutableStateOf(savedApiBaseUrl) }
-    var assemblyAiApiKey by remember { mutableStateOf(savedAssemblyAiApiKey ?: "") }
-    var cloudProcessingEnabled by remember { mutableStateOf(savedCloudProcessing) }
-    var autoTranscribe by remember { mutableStateOf(savedAutoTranscribe) }
-    var autoAnalyzeEmotion by remember { mutableStateOf(savedAutoAnalyzeEmotion) }
+    // Local editing state — initialized once from the first DataStore emission
+    var apiKey by remember { mutableStateOf("") }
+    var apiBaseUrl by remember { mutableStateOf(PreferenceManager.DEFAULT_API_BASE_URL) }
+    var assemblyAiApiKey by remember { mutableStateOf("") }
+    var cloudProcessingEnabled by remember { mutableStateOf(false) }
+    var autoTranscribe by remember { mutableStateOf(false) }
+    var autoAnalyzeEmotion by remember { mutableStateOf(true) }
 
-    // Sync local state when DataStore values arrive (first emission)
-    LaunchedEffect(savedApiKey) {
-        if (savedApiKey != null && apiKey.isEmpty()) {
-            apiKey = savedApiKey ?: ""
+    // Track whether we've initialized local state from DataStore
+    var initialized by remember { mutableStateOf(false) }
+
+    // Sync local state from DataStore on first load only
+    LaunchedEffect(settings) {
+        if (!initialized) {
+            apiKey = settings.deepseekApiKey ?: ""
+            apiBaseUrl = settings.apiBaseUrl
+            assemblyAiApiKey = settings.assemblyAiApiKey ?: ""
+            cloudProcessingEnabled = settings.cloudProcessingEnabled
+            autoTranscribe = settings.autoTranscribe
+            autoAnalyzeEmotion = settings.autoAnalyzeEmotion
+            initialized = true
         }
     }
-    LaunchedEffect(savedAssemblyAiApiKey) {
-        if (savedAssemblyAiApiKey != null && assemblyAiApiKey.isEmpty()) {
-            assemblyAiApiKey = savedAssemblyAiApiKey ?: ""
-        }
-    }
 
-    // Save text fields immediately on change (using PreferenceManager's own persistent scope)
+    // Debounced saves for text fields — wait 500ms after last change before writing to disk
     LaunchedEffect(apiKey) {
-        preferenceManager.saveDeepseekApiKey(apiKey)
+        if (initialized) {
+            delay(500L)
+            preferenceManager.saveDeepseekApiKey(apiKey)
+        }
     }
     LaunchedEffect(apiBaseUrl) {
-        preferenceManager.saveApiBaseUrl(apiBaseUrl)
+        if (initialized) {
+            delay(500L)
+            preferenceManager.saveApiBaseUrl(apiBaseUrl)
+        }
     }
     LaunchedEffect(assemblyAiApiKey) {
-        preferenceManager.saveAssemblyAiApiKey(assemblyAiApiKey)
+        if (initialized) {
+            delay(500L)
+            preferenceManager.saveAssemblyAiApiKey(assemblyAiApiKey)
+        }
     }
 
-    // Guarantee save when leaving the screen (composable disposed)
-    // Uses PreferenceManager's internal ioScope which survives composable disposal
+    // Guarantee save when leaving the screen (single transaction)
     DisposableEffect(Unit) {
         onDispose {
             preferenceManager.saveAll(
