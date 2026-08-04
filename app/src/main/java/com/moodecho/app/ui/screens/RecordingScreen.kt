@@ -38,6 +38,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import android.util.Log
 import com.moodecho.app.MindEchoApp
 import com.moodecho.app.data.db.entity.RecordingSession
 import com.moodecho.app.data.db.entity.SessionStatus
@@ -300,48 +301,53 @@ fun RecordingScreen(
                         val finalDuration = duration
 
                         scope.launch {
-                            // Send STOP intent to RecordingService
-                            val stopIntent = Intent(context, RecordingService::class.java).apply {
-                                action = RecordingService.ACTION_STOP
-                            }
-                            ContextCompat.startForegroundService(context, stopIntent)
-
-                            // Wait for the service to fully stop recording.
-                            // audioRecorder.stop() blocks the main thread (runBlocking for
-                            // amplitude join + MediaRecorder operations), so we need
-                            // enough delay to let it complete before touching the file.
-                            delay(1500)
-
-                            // Save the recording session to the database
-                            val sessionId = saveRecordingToDatabase(
-                                context = context,
-                                outputPath = outputPath,
-                                startTime = sessionStartTime,
-                                duration = finalDuration
-                            )
-
-                            if (sessionId != null) {
-                                // Only run analysis if recording was long enough
-                                // (< 1 sec recordings skip stop() to avoid native crash,
-                                //  so the AAC file may be empty/corrupt)
-                                if (finalDuration >= 1000) {
-                                    // Run on-device emotion analysis (AAC → WAV → features → emotions → DB)
-                                    RecordingService.processRecording(
-                                        context = context,
-                                        audioFilePath = outputPath,
-                                        sessionId = sessionId
-                                    )
-
-                                    // Attempt AssemblyAI transcription if configured
-                                    RecordingService.transcribeAudio(
-                                        context = context,
-                                        audioFilePath = outputPath,
-                                        sessionId = sessionId
-                                    )
+                            try {
+                                // Send STOP intent to RecordingService
+                                val stopIntent = Intent(context, RecordingService::class.java).apply {
+                                    action = RecordingService.ACTION_STOP
                                 }
+                                ContextCompat.startForegroundService(context, stopIntent)
 
-                                onFinish(sessionId)
-                            } else {
+                                // Wait for the service to fully stop recording.
+                                // audioRecorder.stop() blocks the main thread (runBlocking for
+                                // amplitude join + MediaRecorder operations), so we need
+                                // enough delay to let it complete before touching the file.
+                                delay(1500)
+
+                                // Save the recording session to the database
+                                val sessionId = saveRecordingToDatabase(
+                                    context = context,
+                                    outputPath = outputPath,
+                                    startTime = sessionStartTime,
+                                    duration = finalDuration
+                                )
+
+                                if (sessionId != null) {
+                                    // Only run analysis if recording was long enough
+                                    // (< 1 sec recordings skip stop() to avoid native crash,
+                                    //  so the AAC file may be empty/corrupt)
+                                    if (finalDuration >= 1000) {
+                                        // Run on-device emotion analysis (AAC → WAV → features → emotions → DB)
+                                        RecordingService.processRecording(
+                                            context = context,
+                                            audioFilePath = outputPath,
+                                            sessionId = sessionId
+                                        )
+
+                                        // Attempt AssemblyAI transcription if configured
+                                        RecordingService.transcribeAudio(
+                                            context = context,
+                                            audioFilePath = outputPath,
+                                            sessionId = sessionId
+                                        )
+                                    }
+
+                                    onFinish(sessionId)
+                                } else {
+                                    onCancel()
+                                }
+                            } catch (e: Exception) {
+                                Log.e("RecordingScreen", "Crash in stop flow", e)
                                 onCancel()
                             }
                         }

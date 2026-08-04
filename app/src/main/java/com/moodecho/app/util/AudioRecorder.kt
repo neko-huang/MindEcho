@@ -84,39 +84,44 @@ class AudioRecorder(private val context: Context? = null) {
     /**
      * Stop recording and release resources.
      *
-     * CRITICAL #1: `cancel()` is cooperative — the coroutine on Dispatchers.Default
+     * CRITICAL: `cancel()` is cooperative — the coroutine on Dispatchers.Default
      * may still be executing `recorder.maxAmplitude` when cancel() returns.
      * We must WAIT for it to actually finish via `join()` before releasing the
      * MediaRecorder. Otherwise, both threads access the native MediaRecorder
      * simultaneously, causing a native crash (IllegalStateException / SIGSEGV).
      *
-     * CRITICAL #2: `MediaRecorder.stop()` can cause a native SIGSEGV crash (not
-     * catchable by Java try-catch) if the recording duration is too short (< 1 sec).
-     * To avoid this, we skip stop() entirely and just release() for short recordings.
+     * If the amplitude coroutine does not finish within the timeout, we
+     * SKIP `stop()` entirely and only `release()`. This prevents the
+     * native crash from concurrent access even if the coroutine is stuck.
      */
     fun stop() {
-        // 1. Cancel the amplitude polling coroutine
+        // 1. Signal the amplitude coroutine to exit
+        _isRecording = false
+
+        // 2. Cancel the amplitude polling coroutine
         amplitudeJob?.cancel()
-        // 2. WAIT for it to actually finish before touching the recorder
+
+        // 3. WAIT for it to actually finish before touching the recorder
         //    Use a timeout to avoid ANR if the native call hangs
+        var amplitudeTimedOut = false
         try {
             runBlocking {
-                withTimeout(500) {
+                withTimeout(1000) {
                     amplitudeJob?.join()
                 }
             }
         } catch (e: Exception) {
-            // Timeout or cancellation — proceed anyway
+            // Timeout — amplitude coroutine may still be accessing recorder
+            amplitudeTimedOut = true
         }
         amplitudeJob = null
 
         val r = recorder
         recorder = null
         if (r != null) {
-            val durationMs = System.currentTimeMillis() - recordingStartTime
-            if (durationMs < 1000) {
-                // Recording too short: MediaRecorder.stop() can cause a native
-                // SIGSEGV that crashes the app. Skip stop() entirely, just release().
+            if (amplitudeTimedOut) {
+                // Amplitude coroutine may still be accessing the recorder.
+                // Skip stop() to avoid native crash from concurrent access.
                 try {
                     r.release()
                 } catch (e: Exception) {
@@ -124,7 +129,7 @@ class AudioRecorder(private val context: Context? = null) {
                 }
             } else {
                 // Normal stop: separate try-catch blocks so release() always runs
-                // even if stop() throws.
+                // even if stop() throws a Java exception.
                 try {
                     r.stop()
                 } catch (e: Exception) {
@@ -137,7 +142,6 @@ class AudioRecorder(private val context: Context? = null) {
                 }
             }
         }
-        _isRecording = false
         _amplitudeFlow.value = 0f
     }
 
