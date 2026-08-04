@@ -22,9 +22,22 @@ android {
         }
     }
 
+    signingConfigs {
+        create("mindecho") {
+            storeFile = file("../mindecho-debug.keystore")
+            storePassword = "mindecho123"
+            keyAlias = "mindecho"
+            keyPassword = "mindecho123"
+        }
+    }
+
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("mindecho")
+        }
         release {
             isMinifyEnabled = true
+            signingConfig = signingConfigs.getByName("mindecho")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

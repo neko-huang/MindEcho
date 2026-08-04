@@ -12,7 +12,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.io.File
-import java.io.IOException
 
 /**
  * Audio recording utility wrapping Android's MediaRecorder.
@@ -55,15 +54,31 @@ class AudioRecorder(private val context: Context? = null) {
             }
             _isRecording = true
             startAmplitudePolling()
-        } catch (e: IOException) {
+        } catch (e: Exception) {
+            // Catch all exceptions, not just IOException.
+            // MediaRecorder methods like setAudioSource(), prepare(), and start()
+            // can throw RuntimeException (IllegalStateException) if the device's
+            // microphone is unavailable, the recorder is in an invalid state, etc.
+            // Silently release and let the caller check _isRecording.
             release()
         }
     }
 
     /**
      * Stop recording and release resources.
+     *
+     * IMPORTANT: Cancel the amplitude polling coroutine BEFORE stopping the
+     * MediaRecorder to prevent a race condition where the polling coroutine
+     * (running on Dispatchers.Default) calls recorder.maxAmplitude while the
+     * main thread is releasing the MediaRecorder. This race can cause
+     * IllegalStateException or other crashes on stop().
      */
     fun stop() {
+        // Cancel amplitude polling first to prevent any concurrent access to
+        // the MediaRecorder from background threads during stop/release.
+        amplitudeJob?.cancel()
+        amplitudeJob = null
+
         try {
             recorder?.apply {
                 stop()
@@ -71,10 +86,10 @@ class AudioRecorder(private val context: Context? = null) {
             }
         } catch (e: Exception) {
             // MediaRecorder may throw if stop() called too soon after start()
+            // or if the recorder is in an invalid state. Safe to ignore.
         } finally {
             recorder = null
             _isRecording = false
-            amplitudeJob?.cancel()
             _amplitudeFlow.value = 0f
         }
     }
@@ -110,6 +125,11 @@ class AudioRecorder(private val context: Context? = null) {
      * Used in error cases.
      */
     fun release() {
+        // Cancel amplitude polling first to prevent concurrent access to
+        // the MediaRecorder from background threads during release.
+        amplitudeJob?.cancel()
+        amplitudeJob = null
+
         try {
             recorder?.release()
         } catch (e: Exception) {
@@ -117,7 +137,6 @@ class AudioRecorder(private val context: Context? = null) {
         }
         recorder = null
         _isRecording = false
-        amplitudeJob?.cancel()
         _amplitudeFlow.value = 0f
     }
 
