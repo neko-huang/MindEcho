@@ -34,6 +34,8 @@ class AudioRecorder(private val context: Context? = null) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     @Volatile
     private var _isRecording = false
+    @Volatile
+    private var recordingStartTime = 0L
 
     private val _amplitudeFlow = MutableStateFlow(0f)
     val amplitudeFlow: StateFlow<Float> = _amplitudeFlow.asStateFlow()
@@ -66,6 +68,7 @@ class AudioRecorder(private val context: Context? = null) {
             }
             recorder = newRecorder
             _isRecording = true
+            recordingStartTime = System.currentTimeMillis()
             startAmplitudePolling()
         } catch (e: Exception) {
             // Configuration or start failed. Release the new recorder
@@ -81,14 +84,15 @@ class AudioRecorder(private val context: Context? = null) {
     /**
      * Stop recording and release resources.
      *
-     * CRITICAL: `cancel()` is cooperative — the coroutine on Dispatchers.Default
+     * CRITICAL #1: `cancel()` is cooperative — the coroutine on Dispatchers.Default
      * may still be executing `recorder.maxAmplitude` when cancel() returns.
      * We must WAIT for it to actually finish via `join()` before releasing the
      * MediaRecorder. Otherwise, both threads access the native MediaRecorder
      * simultaneously, causing a native crash (IllegalStateException / SIGSEGV).
      *
-     * `join()` has a 500ms timeout to prevent blocking the main thread indefinitely
-     * if the native `maxAmplitude` call hangs on some devices.
+     * CRITICAL #2: `MediaRecorder.stop()` can cause a native SIGSEGV crash (not
+     * catchable by Java try-catch) if the recording duration is too short (< 1 sec).
+     * To avoid this, we skip stop() entirely and just release() for short recordings.
      */
     fun stop() {
         // 1. Cancel the amplitude polling coroutine
@@ -106,22 +110,31 @@ class AudioRecorder(private val context: Context? = null) {
         }
         amplitudeJob = null
 
-        // Stop and release the recorder in SEPARATE try-catch blocks.
-        // If stop() throws, release() must still be called to avoid leaking
-        // native MediaRecorder resources. Do NOT use `apply { stop(); release() }`
-        // because a thrown exception from stop() would skip release().
         val r = recorder
         recorder = null
         if (r != null) {
-            try {
-                r.stop()
-            } catch (e: Exception) {
-                // May throw if recorder is already stopped or in invalid state
-            }
-            try {
-                r.release()
-            } catch (e: Exception) {
-                // Ignore release errors
+            val durationMs = System.currentTimeMillis() - recordingStartTime
+            if (durationMs < 1000) {
+                // Recording too short: MediaRecorder.stop() can cause a native
+                // SIGSEGV that crashes the app. Skip stop() entirely, just release().
+                try {
+                    r.release()
+                } catch (e: Exception) {
+                    // Ignore release errors
+                }
+            } else {
+                // Normal stop: separate try-catch blocks so release() always runs
+                // even if stop() throws.
+                try {
+                    r.stop()
+                } catch (e: Exception) {
+                    // May throw if recorder is already stopped or in invalid state
+                }
+                try {
+                    r.release()
+                } catch (e: Exception) {
+                    // Ignore release errors
+                }
             }
         }
         _isRecording = false

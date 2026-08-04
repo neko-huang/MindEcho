@@ -306,8 +306,11 @@ fun RecordingScreen(
                             }
                             ContextCompat.startForegroundService(context, stopIntent)
 
-                            // Wait for the service to stop recording
-                            delay(500)
+                            // Wait for the service to fully stop recording.
+                            // audioRecorder.stop() blocks the main thread (runBlocking for
+                            // amplitude join + MediaRecorder operations), so we need
+                            // enough delay to let it complete before touching the file.
+                            delay(1500)
 
                             // Save the recording session to the database
                             val sessionId = saveRecordingToDatabase(
@@ -318,19 +321,24 @@ fun RecordingScreen(
                             )
 
                             if (sessionId != null) {
-                                // Run on-device emotion analysis (AAC → WAV → features → emotions → DB)
-                                RecordingService.processRecording(
-                                    context = context,
-                                    audioFilePath = outputPath,
-                                    sessionId = sessionId
-                                )
+                                // Only run analysis if recording was long enough
+                                // (< 1 sec recordings skip stop() to avoid native crash,
+                                //  so the AAC file may be empty/corrupt)
+                                if (finalDuration >= 1000) {
+                                    // Run on-device emotion analysis (AAC → WAV → features → emotions → DB)
+                                    RecordingService.processRecording(
+                                        context = context,
+                                        audioFilePath = outputPath,
+                                        sessionId = sessionId
+                                    )
 
-                                // Attempt AssemblyAI transcription if configured
-                                RecordingService.transcribeAudio(
-                                    context = context,
-                                    audioFilePath = outputPath,
-                                    sessionId = sessionId
-                                )
+                                    // Attempt AssemblyAI transcription if configured
+                                    RecordingService.transcribeAudio(
+                                        context = context,
+                                        audioFilePath = outputPath,
+                                        sessionId = sessionId
+                                    )
+                                }
 
                                 onFinish(sessionId)
                             } else {
