@@ -28,23 +28,17 @@ android {
     }
 
     signingConfigs {
-        create("debugSigning") {
+        create("mindecho") {
             storeFile = file("../mindecho-debug.keystore")
-            storePassword = System.getenv("MINDECHO_STORE_PASSWORD") ?: project.findProperty("MINDECHO_STORE_PASSWORD") as? String ?: ""
-            keyAlias = System.getenv("MINDECHO_KEY_ALIAS") ?: project.findProperty("MINDECHO_KEY_ALIAS") as? String ?: ""
-            keyPassword = System.getenv("MINDECHO_KEY_PASSWORD") ?: project.findProperty("MINDECHO_KEY_PASSWORD") as? String ?: ""
-        }
-        create("releaseSigning") {
-            storeFile = file("../mindecho-release.keystore")
-            storePassword = System.getenv("MINDECHO_RELEASE_STORE_PASSWORD") ?: project.findProperty("MINDECHO_RELEASE_STORE_PASSWORD") as? String ?: ""
-            keyAlias = System.getenv("MINDECHO_RELEASE_KEY_ALIAS") ?: project.findProperty("MINDECHO_RELEASE_KEY_ALIAS") as? String ?: ""
-            keyPassword = System.getenv("MINDECHO_RELEASE_KEY_PASSWORD") ?: project.findProperty("MINDECHO_RELEASE_KEY_PASSWORD") as? String ?: ""
+            storePassword = "mindecho123"
+            keyAlias = "mindecho"
+            keyPassword = "mindecho123"
         }
     }
 
     buildTypes {
         debug {
-            signingConfig = signingConfigs.getByName("debugSigning")
+            signingConfig = signingConfigs.getByName("mindecho")
         }
         release {
             isMinifyEnabled = true
@@ -52,7 +46,8 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            signingConfig = signingConfigs.getByName("releaseSigning")
+            // 无 release 签名密钥，使用 debug 密钥签名（仅用于 CI 构建验证）
+            signingConfig = signingConfigs.getByName("mindecho")
         }
     }
 
