@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import java.io.File
 
 /**
@@ -27,8 +28,10 @@ import java.io.File
  */
 class AudioRecorder(private val context: Context? = null) {
 
+    @Volatile
     private var recorder: MediaRecorder? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    @Volatile
     private var _isRecording = false
 
     private val _amplitudeFlow = MutableStateFlow(0f)
@@ -41,8 +44,16 @@ class AudioRecorder(private val context: Context? = null) {
      * @param outputPath Full file path for the output audio file
      */
     fun start(outputPath: String) {
+        // Create the recorder first, then configure it. If configuration fails,
+        // we must release the newly created recorder to avoid leaking native resources.
+        val newRecorder = try {
+            createRecorder()
+        } catch (e: Exception) {
+            // Context missing on API 31+; nothing to release
+            return
+        }
         try {
-            recorder = createRecorder().apply {
+            newRecorder.apply {
                 setAudioSource(MediaRecorder.AudioSource.MIC)
                 setOutputFormat(MediaRecorder.OutputFormat.AAC_ADTS)
                 setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
@@ -52,14 +63,16 @@ class AudioRecorder(private val context: Context? = null) {
                 prepare()
                 start()
             }
+            recorder = newRecorder
             _isRecording = true
             startAmplitudePolling()
         } catch (e: Exception) {
-            // Catch all exceptions, not just IOException.
-            // MediaRecorder methods like setAudioSource(), prepare(), and start()
-            // can throw RuntimeException (IllegalStateException) if the device's
-            // microphone is unavailable, the recorder is in an invalid state, etc.
-            // Silently release and let the caller check _isRecording.
+            // Configuration or start failed. Release the new recorder
+            // (which is NOT yet assigned to `recorder`, so release() won't help).
+            try {
+                newRecorder.release()
+            } catch (_: Exception) { }
+            // Also release any old recorder that might still be set
             release()
         }
     }
@@ -67,16 +80,19 @@ class AudioRecorder(private val context: Context? = null) {
     /**
      * Stop recording and release resources.
      *
-     * IMPORTANT: Cancel the amplitude polling coroutine BEFORE stopping the
-     * MediaRecorder to prevent a race condition where the polling coroutine
-     * (running on Dispatchers.Default) calls recorder.maxAmplitude while the
-     * main thread is releasing the MediaRecorder. This race can cause
-     * IllegalStateException or other crashes on stop().
+     * CRITICAL: `cancel()` is cooperative — the coroutine on Dispatchers.Default
+     * may still be executing `recorder.maxAmplitude` when cancel() returns.
+     * We must WAIT for it to actually finish via `join()` before releasing the
+     * MediaRecorder. Otherwise, both threads access the native MediaRecorder
+     * simultaneously, causing a native crash (IllegalStateException / SIGSEGV).
      */
     fun stop() {
-        // Cancel amplitude polling first to prevent any concurrent access to
-        // the MediaRecorder from background threads during stop/release.
+        // 1. Cancel the amplitude polling coroutine
         amplitudeJob?.cancel()
+        // 2. WAIT for it to actually finish before touching the recorder
+        runBlocking {
+            amplitudeJob?.join()
+        }
         amplitudeJob = null
 
         try {
@@ -125,9 +141,11 @@ class AudioRecorder(private val context: Context? = null) {
      * Used in error cases.
      */
     fun release() {
-        // Cancel amplitude polling first to prevent concurrent access to
-        // the MediaRecorder from background threads during release.
+        // Same as stop(): cancel + wait for completion before releasing
         amplitudeJob?.cancel()
+        runBlocking {
+            amplitudeJob?.join()
+        }
         amplitudeJob = null
 
         try {

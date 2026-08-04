@@ -248,6 +248,9 @@ fun RecordingScreen(
                         if (isStopping) return@FilledIconButton
                         isStopping = true
 
+                        // Capture the final duration NOW, before the service zeros it
+                        val finalDuration = duration
+
                         scope.launch {
                             // Send STOP intent to RecordingService
                             val stopIntent = Intent(context, RecordingService::class.java).apply {
@@ -263,7 +266,7 @@ fun RecordingScreen(
                                 context = context,
                                 outputPath = outputPath,
                                 startTime = sessionStartTime,
-                                duration = duration
+                                duration = finalDuration
                             )
 
                             if (sessionId != null) {
