@@ -20,6 +20,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -65,7 +66,7 @@ fun MindEchoNavHost(
     val currentDestination = navBackStackEntry?.destination
 
     // Track whether we should auto-navigate to recording after permission grant
-    var pendingNavigationToRecording by remember { mutableStateOf(false) }
+    var pendingNavigationToRecording by rememberSaveable { mutableStateOf(false) }
 
     // Auto-navigate to recording when permissions are granted and we were waiting
     LaunchedEffect(hasAllPermissions) {
@@ -177,12 +178,10 @@ fun MindEchoNavHost(
                     },
                     onNavigateToSettings = {
                         navController.navigate(Constants.ROUTE_SETTINGS) {
-                            // Use same navigation pattern as bottom nav to avoid
-                            // corrupting the back stack state. Without popUpTo + saveState,
-                            // subsequent bottom nav clicks may restore wrong destination.
-                            popUpTo(Constants.ROUTE_HOME) { saveState = true }
+                            // Pop up to ReportTab so that pressing back from Settings
+                            // returns to the ReportTab, not to Home.
+                            popUpTo(Constants.ROUTE_REPORT_TAB) { inclusive = true }
                             launchSingleTop = true
-                            restoreState = true
                         }
                     }
                 )

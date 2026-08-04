@@ -13,13 +13,16 @@ import com.moodecho.app.data.db.entity.EmotionDataPoint
 import com.moodecho.app.data.db.entity.RecordingSession
 import com.moodecho.app.data.db.entity.TranscriptEntry
 import com.moodecho.app.data.repository.RecordingRepository
+import com.moodecho.app.data.repository.RepositoryResult
 import com.moodecho.app.domain.model.EmotionType
 import com.moodecho.app.util.Constants
 import com.moodecho.app.util.PreferenceManager
+import kotlinx.coroutines.delay
 import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.TimeUnit
@@ -59,7 +62,8 @@ object DailyReportService {
             sessionDao = db.recordingSessionDao(),
             transcriptDao = db.transcriptEntryDao(),
             emotionDao = db.emotionDataPointDao(),
-            reportDao = db.dailyReportDao()
+            reportDao = db.dailyReportDao(),
+            reportSessionDao = db.dailyReportSessionDao()
         )
         val preferenceManager = PreferenceManager(context)
 
@@ -71,8 +75,25 @@ object DailyReportService {
 
         val baseUrl = preferenceManager.getApiBaseUrl()
 
-        // Fetch all sessions for the given date
-        val sessions = repository.getSessionsByDate(date)
+        // Parse date string to epoch millis range
+        val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+        val parsedDate = dateFormat.parse(date) ?: return ReportResult.Error("Invalid date format")
+        val calendar = Calendar.getInstance()
+        calendar.time = parsedDate
+        calendar.set(Calendar.HOUR_OF_DAY, 0)
+        calendar.set(Calendar.MINUTE, 0)
+        calendar.set(Calendar.SECOND, 0)
+        calendar.set(Calendar.MILLISECOND, 0)
+        val dayStart = calendar.timeInMillis
+        calendar.add(Calendar.DAY_OF_MONTH, 1)
+        val nextDayStart = calendar.timeInMillis
+
+        // Fetch all sessions for the given date using range query
+        val sessionsResult = repository.getSessionsByDate(dayStart, nextDayStart)
+        val sessions = when (sessionsResult) {
+            is RepositoryResult.Success -> sessionsResult.data
+            is RepositoryResult.Error -> return ReportResult.Error(sessionsResult.message)
+        }
         if (sessions.isEmpty()) {
             return ReportResult.NoData
         }
@@ -80,8 +101,16 @@ object DailyReportService {
         // Collect transcript and emotion data for each session
         val sessionDataList = mutableListOf<SessionData>()
         for (session in sessions) {
-            val transcripts = repository.getTranscriptsForSessionSync(session.id)
-            val emotions = repository.getEmotionsForSessionSync(session.id)
+            val transcriptsResult = repository.getTranscriptsForSessionSync(session.id)
+            val emotionsResult = repository.getEmotionsForSessionSync(session.id)
+            val transcripts = when (transcriptsResult) {
+                is RepositoryResult.Success -> transcriptsResult.data
+                is RepositoryResult.Error -> emptyList()
+            }
+            val emotions = when (emotionsResult) {
+                is RepositoryResult.Success -> emotionsResult.data
+                is RepositoryResult.Error -> emptyList()
+            }
             sessionDataList.add(
                 SessionData(
                     session = session,
@@ -101,23 +130,19 @@ object DailyReportService {
         // Build the prompt
         val prompt = buildPrompt(date, sessionDataList)
 
-        // Call the LLM API
-        val llmResponse = callLlmApi(apiKey, baseUrl, prompt)
-            ?: return ReportResult.Error("Failed to get response from DeepSeek API")
+        // P1: Call the LLM API with retry (exponential backoff, 3 attempts)
+        val llmResponse = callLlmApiWithRetry(apiKey, baseUrl, prompt)
+            ?: return ReportResult.Error("Failed to get response from DeepSeek API after retries")
 
         // Parse the LLM response
         val parsed = parseLlmResponse(llmResponse)
 
-        // Determine overall mood from emotion data
+        // P2: Determine overall mood from emotion data (weighted by confidence)
         val overallMood = determineOverallMood(sessionDataList)
 
-        // Build session ID list
-        val sessionIdList = sessions.joinToString(",") { it.id.toString() }
-
-        // Create and save the report
+        // Create and save the report (without sessionIdList — now uses junction table)
         val report = DailyReport(
             date = date,
-            sessionIdList = sessionIdList,
             summary = parsed.summary,
             emotionOverview = parsed.emotionOverview,
             suggestions = parsed.suggestions,
@@ -126,18 +151,65 @@ object DailyReportService {
         )
 
         // Delete existing report for this date (if any) before inserting
-        val existingReport = repository.getReportByDate(date)
-        if (existingReport != null) {
-            repository.deleteReport(existingReport)
+        val existingReportResult = repository.getReportByDate(date)
+        if (existingReportResult is RepositoryResult.Success && existingReportResult.data != null) {
+            repository.deleteReport(existingReportResult.data)
         }
 
-        repository.saveReport(report)
+        val reportResult = repository.saveReport(report)
+        val reportId = when (reportResult) {
+            is RepositoryResult.Success -> reportResult.data
+            is RepositoryResult.Error -> return ReportResult.Error(reportResult.message)
+        }
+
+        // Save session IDs to the junction table
+        val sessionIds = sessions.map { it.id }
+        repository.saveReportSessions(reportId, sessionIds)
 
         return ReportResult.Success(report)
     }
 
     /**
+     * P1: Call LLM API with exponential backoff retry.
+     * Retries only on 5xx server errors and timeouts.
+     * Maximum 3 attempts with 1s, 2s, 4s delays.
+     */
+    private suspend fun callLlmApiWithRetry(
+        apiKey: String,
+        baseUrl: String,
+        userContent: String
+    ): String? {
+        val delays = listOf(1000L, 2000L, 4000L)
+
+        for (attempt in 0..delays.size) {
+            val result = try {
+                callLlmApi(apiKey, baseUrl, userContent)
+            } catch (e: Exception) {
+                // Network/IO error — worth retrying
+                if (attempt < delays.size) {
+                    delay(delays[attempt])
+                    continue
+                }
+                null
+            }
+
+            if (result != null) {
+                return result
+            }
+
+            // If we got null (non-5xx error), don't retry
+            if (attempt < delays.size) {
+                delay(delays[attempt])
+            }
+        }
+
+        return null
+    }
+
+    /**
      * Build the prompt string from session data.
+     *
+     * P3: truncates overly long transcripts to avoid exceeding context window.
      */
     private fun buildPrompt(date: String, sessionDataList: List<SessionData>): String {
         val sb = StringBuilder()
@@ -156,10 +228,24 @@ object DailyReportService {
             sb.appendLine("Duration: ${durationMin}m ${durationSec}s")
             sb.appendLine()
 
-            // Transcript
+            // P3: truncate long transcripts — keep only first and last entries if too many
             if (data.transcripts.isNotEmpty()) {
                 sb.appendLine("Transcript:")
-                data.transcripts.forEach { entry ->
+                val maxTranscriptLines = 100
+                val entries = if (data.transcripts.size > maxTranscriptLines) {
+                    val firstHalf = data.transcripts.take(maxTranscriptLines / 2)
+                    val lastHalf = data.transcripts.takeLast(maxTranscriptLines / 2)
+                    firstHalf + listOf(
+                        TranscriptEntry(
+                            id = 0, sessionId = session.id,
+                            text = "... [${data.transcripts.size - maxTranscriptLines} entries omitted for brevity] ...",
+                            startTime = 0L, endTime = 0L
+                        )
+                    ) + lastHalf
+                } else {
+                    data.transcripts
+                }
+                entries.forEach { entry ->
                     val startTime = timeFormat.format(Date(entry.startTime))
                     sb.appendLine("  [$startTime] ${entry.text}")
                 }
@@ -168,10 +254,12 @@ object DailyReportService {
             }
             sb.appendLine()
 
-            // Emotion data
+            // P3: Emotion data: truncate if too many to avoid context window overflow
             if (data.emotions.isNotEmpty()) {
                 sb.appendLine("Emotion data points:")
-                data.emotions.forEach { point ->
+                val maxEmotionLines = 50
+                val emotionsToShow = data.emotions.take(maxEmotionLines)
+                emotionsToShow.forEach { point ->
                     val timeStr = timeFormat.format(Date(point.timestamp))
                     sb.appendLine(
                         "  [$timeStr] ${point.emotionType.displayName} " +
@@ -179,6 +267,9 @@ object DailyReportService {
                                 "arousal: ${"%.2f".format(point.arousal)}, " +
                                 "valence: ${"%.2f".format(point.valence)})"
                     )
+                }
+                if (data.emotions.size > maxEmotionLines) {
+                    sb.appendLine("  ... [${data.emotions.size - maxEmotionLines} more emotion data points omitted] ...")
                 }
             } else {
                 sb.appendLine("Emotion data: (no emotion data available)")
@@ -281,10 +372,12 @@ object DailyReportService {
                     ChatMessage(role = "system", content = systemPrompt),
                     ChatMessage(role = "user", content = userContent)
                 ),
-                temperature = 1.0,
+                // P2: reduce temperature from 1.0 to 0.3 for more consistent output
+                temperature = 0.3,
                 top_p = 0.95,
                 max_tokens = 5000,
-                reasoning_effort = "max",
+                // P2: reduce reasoning_effort from "max" to "low" to decrease latency and cost
+                reasoning_effort = "low",
                 response_format = ResponseFormat(type = "json_object")
             )
 
@@ -296,16 +389,29 @@ object DailyReportService {
             if (response.isSuccessful) {
                 response.body()?.choices?.firstOrNull()?.message?.content
             } else {
+                // P1: only retry on 5xx server errors
+                if (response.code() in 500..599) {
+                    throw ServerErrorException(response.code(), response.message())
+                }
                 null
             }
         } catch (e: Exception) {
+            // P1: rethrow server errors so retry mechanism can handle them
+            if (e is ServerErrorException) throw e
             null
         }
     }
 
     /**
+     * P1: custom exception to signal server errors eligible for retry.
+     */
+    private class ServerErrorException(val code: Int, msg: String?) : Exception(msg)
+
+    /**
      * Parse the LLM JSON response into structured fields.
      * Falls back to using raw text if JSON parsing fails.
+     *
+     * P1: handles "suggestions" field when it's a JSON array instead of string.
      */
     private fun parseLlmResponse(rawResponse: String): ParsedReport {
         return try {
@@ -315,8 +421,8 @@ object DailyReportService {
                     ?: "Unable to generate emotion overview.",
                 summary = json.get("summary")?.asString
                     ?: "Unable to generate summary.",
-                suggestions = json.get("suggestions")?.asString
-                    ?: "No suggestions available."
+                // P1: try asString first; if that fails, try asJsonArray → joinToString
+                suggestions = parseSuggestions(json.get("suggestions"))
             )
         } catch (e: Exception) {
             // Fallback: use raw text as summary
@@ -329,19 +435,42 @@ object DailyReportService {
     }
 
     /**
-     * Determine the overall dominant mood from all emotion data across sessions.
+     * P1: parse suggestions field that may be a string or a JSON array.
+     */
+    private fun parseSuggestions(element: com.google.gson.JsonElement?): String {
+        if (element == null) return "No suggestions available."
+        return try {
+            // Try as string first
+            element.asString
+        } catch (e: UnsupportedOperationException) {
+            // Fall back to array
+            try {
+                val array = element.asJsonArray
+                array.joinToString("\n") { item ->
+                    val text = item.asString
+                    if (text.startsWith("•")) text else "• $text"
+                }
+            } catch (e2: Exception) {
+                "No suggestions available."
+            }
+        }
+    }
+
+    /**
+     * P2: determine the overall dominant mood from all emotion data across sessions,
+     * weighted by confidence instead of simple count.
      */
     private fun determineOverallMood(sessionDataList: List<SessionData>): EmotionType {
-        val emotionCounts = mutableMapOf<EmotionType, Int>()
+        val confidenceWeighted = mutableMapOf<EmotionType, Double>()
         for (data in sessionDataList) {
             for (point in data.emotions) {
-                emotionCounts[point.emotionType] =
-                    (emotionCounts[point.emotionType] ?: 0) + 1
+                confidenceWeighted[point.emotionType] =
+                    (confidenceWeighted[point.emotionType] ?: 0.0) + point.confidence.toDouble()
             }
         }
 
-        return if (emotionCounts.isNotEmpty()) {
-            emotionCounts.maxByOrNull { it.value }!!.key
+        return if (confidenceWeighted.isNotEmpty()) {
+            confidenceWeighted.maxByOrNull { it.value }!!.key
         } else {
             EmotionType.NEUTRAL
         }

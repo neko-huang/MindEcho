@@ -11,7 +11,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import java.io.File
 
@@ -43,10 +42,22 @@ class AudioRecorder(private val context: Context? = null) {
     private var amplitudeJob: kotlinx.coroutines.Job? = null
 
     /**
+     * 双重保障标志：当 recorder 已被释放时设为 true。
+     * 在 amplitude 协程循环中每次迭代前检查此标志，避免释放后仍访问 native 资源。
+     */
+    @Volatile
+    private var _released = false
+
+    /**
      * Start recording audio to the specified output path.
      * @param outputPath Full file path for the output audio file
      */
     fun start(outputPath: String) {
+        // 【P1 修复】防止连续两次 start() 未 stop() 时泄漏前一个 MediaRecorder
+        if (_isRecording) {
+            return
+        }
+
         // Create the recorder first, then configure it. If configuration fails,
         // we must release the newly created recorder to avoid leaking native resources.
         val newRecorder = try {
@@ -71,13 +82,11 @@ class AudioRecorder(private val context: Context? = null) {
             recordingStartTime = System.currentTimeMillis()
             startAmplitudePolling()
         } catch (e: Exception) {
-            // Configuration or start failed. Release the new recorder
-            // (which is NOT yet assigned to `recorder`, so release() won't help).
+            // 【P1 修复】catch 块中只释放 newRecorder，不调用 release()
+            // 因为 release() 会释放正在录制的旧 recorder（如果存在）
             try {
                 newRecorder.release()
             } catch (_: Exception) { }
-            // Also release any old recorder that might still be set
-            release()
         }
     }
 
@@ -93,8 +102,11 @@ class AudioRecorder(private val context: Context? = null) {
      * If the amplitude coroutine does not finish within the timeout, we
      * SKIP `stop()` entirely and only `release()`. This prevents the
      * native crash from concurrent access even if the coroutine is stuck.
+     *
+     * 【P0 修复】改为 suspend 函数，用 withTimeout + join() 替代 runBlocking，
+     * 避免在主线程调用时阻塞导致 ANR。
      */
-    fun stop() {
+    suspend fun stop() {
         // 1. Signal the amplitude coroutine to exit
         _isRecording = false
 
@@ -102,19 +114,20 @@ class AudioRecorder(private val context: Context? = null) {
         amplitudeJob?.cancel()
 
         // 3. WAIT for it to actually finish before touching the recorder
-        //    Use a timeout to avoid ANR if the native call hangs
+        //    Use a timeout to avoid hanging if the native call hangs
         var amplitudeTimedOut = false
         try {
-            runBlocking {
-                withTimeout(1000) {
-                    amplitudeJob?.join()
-                }
+            withTimeout(1000) {
+                amplitudeJob?.join()
             }
         } catch (e: Exception) {
             // Timeout — amplitude coroutine may still be accessing recorder
             amplitudeTimedOut = true
         }
         amplitudeJob = null
+
+        // 设置释放标志，防止 amplitude 协程后续访问
+        _released = true
 
         val r = recorder
         recorder = null
@@ -174,20 +187,17 @@ class AudioRecorder(private val context: Context? = null) {
     /**
      * Release all resources without stopping cleanly.
      * Used in error cases.
+     *
+     * 此处不等待 amplitude 协程完成（避免阻塞主线程），
+     * 仅通过 _released 标志防止协程后续访问已释放的 recorder。
      */
     fun release() {
-        // Same as stop(): cancel + wait for completion before releasing
+        _isRecording = false
         amplitudeJob?.cancel()
-        try {
-            runBlocking {
-                withTimeout(500) {
-                    amplitudeJob?.join()
-                }
-            }
-        } catch (e: Exception) {
-            // Timeout or cancellation — proceed anyway
-        }
         amplitudeJob = null
+
+        // 设置释放标志，amplitude 协程会在每次循环前检查此标志
+        _released = true
 
         val r = recorder
         recorder = null
@@ -198,7 +208,6 @@ class AudioRecorder(private val context: Context? = null) {
                 // Ignore
             }
         }
-        _isRecording = false
         _amplitudeFlow.value = 0f
     }
 
@@ -209,7 +218,7 @@ class AudioRecorder(private val context: Context? = null) {
     private fun startAmplitudePolling() {
         amplitudeJob?.cancel()
         amplitudeJob = scope.launch {
-            while (isActive && _isRecording) {
+            while (isActive && _isRecording && !_released) {
                 try {
                     val maxAmplitude = recorder?.maxAmplitude?.toFloat() ?: 0f
                     // Normalize: MediaRecorder maxAmplitude range is 0 ~ 32767

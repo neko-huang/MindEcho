@@ -1,44 +1,14 @@
 package com.moodecho.app.data.api
 
-import okhttp3.MultipartBody
 import okhttp3.RequestBody
-import okhttp3.ResponseBody
 import retrofit2.Response
 import retrofit2.http.Body
 import retrofit2.http.GET
 import retrofit2.http.Header
 import retrofit2.http.Headers
-import retrofit2.http.Multipart
 import retrofit2.http.POST
-import retrofit2.http.Part
 import retrofit2.http.Path
 import retrofit2.http.Url
-
-/**
- * Retrofit API interface for Whisper transcription (OpenAI-compatible).
- * DeepSeek does not provide Whisper; users may configure a separate OpenAI key
- * for transcription if needed.
- * Endpoint: POST /v1/audio/transcriptions
- */
-interface WhisperApi {
-
-    @Multipart
-    @POST("v1/audio/transcriptions")
-    suspend fun transcribeAudio(
-        @Part file: MultipartBody.Part,
-        @Part("model") model: RequestBody,
-        @Part("language") language: RequestBody? = null
-    ): Response<WhisperResponse>
-}
-
-/**
- * Response from the Whisper transcription API.
- */
-data class WhisperResponse(
-    val text: String,
-    val language: String? = null,
-    val duration: Float? = null
-)
 
 /**
  * Retrofit API interface for DeepSeek Chat Completions (OpenAI-compatible).
@@ -72,7 +42,7 @@ data class ChatCompletionRequest(
     val temperature: Double = 1.0,
     val top_p: Double = 0.95,
     val max_tokens: Int = 5000,
-    val reasoning_effort: String? = "max",
+    val reasoning_effort: String? = null,
     val response_format: ResponseFormat? = null
 )
 
@@ -112,6 +82,19 @@ data class ChatUsage(
 )
 
 /**
+ * Generic API error response model.
+ */
+data class ApiError(
+    val error: ApiErrorDetail? = null
+)
+
+data class ApiErrorDetail(
+    val message: String? = null,
+    val type: String? = null,
+    val code: String? = null
+)
+
+/**
  * Retrofit API interface for AssemblyAI Transcription.
  * Supports audio upload, transcript creation with speaker diarization, and polling.
  */
@@ -121,6 +104,7 @@ interface AssemblyAiApi {
      * Upload an audio file to AssemblyAI.
      * The returned upload_url is used as audio_url in the transcript request.
      */
+    @Headers("Content-Type: application/octet-stream")
     @POST
     suspend fun uploadAudio(
         @Url url: String,

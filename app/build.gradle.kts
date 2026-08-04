@@ -20,28 +20,39 @@ android {
         vectorDrawables {
             useSupportLibrary = true
         }
+
+        // Room schema export for migration management
+        ksp {
+            arg("room.schemaLocation", "$projectDir/schemas")
+        }
     }
 
     signingConfigs {
-        create("mindecho") {
+        create("debugSigning") {
             storeFile = file("../mindecho-debug.keystore")
-            storePassword = "mindecho123"
-            keyAlias = "mindecho"
-            keyPassword = "mindecho123"
+            storePassword = System.getenv("MINDECHO_STORE_PASSWORD") ?: project.findProperty("MINDECHO_STORE_PASSWORD") as? String ?: ""
+            keyAlias = System.getenv("MINDECHO_KEY_ALIAS") ?: project.findProperty("MINDECHO_KEY_ALIAS") as? String ?: ""
+            keyPassword = System.getenv("MINDECHO_KEY_PASSWORD") ?: project.findProperty("MINDECHO_KEY_PASSWORD") as? String ?: ""
+        }
+        create("releaseSigning") {
+            storeFile = file("../mindecho-release.keystore")
+            storePassword = System.getenv("MINDECHO_RELEASE_STORE_PASSWORD") ?: project.findProperty("MINDECHO_RELEASE_STORE_PASSWORD") as? String ?: ""
+            keyAlias = System.getenv("MINDECHO_RELEASE_KEY_ALIAS") ?: project.findProperty("MINDECHO_RELEASE_KEY_ALIAS") as? String ?: ""
+            keyPassword = System.getenv("MINDECHO_RELEASE_KEY_PASSWORD") ?: project.findProperty("MINDECHO_RELEASE_KEY_PASSWORD") as? String ?: ""
         }
     }
 
     buildTypes {
         debug {
-            signingConfig = signingConfigs.getByName("mindecho")
+            signingConfig = signingConfigs.getByName("debugSigning")
         }
         release {
             isMinifyEnabled = true
-            signingConfig = signingConfigs.getByName("mindecho")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            signingConfig = signingConfigs.getByName("releaseSigning")
         }
     }
 
@@ -104,6 +115,9 @@ dependencies {
 
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+
+    // EncryptedSharedPreferences for secure API key storage
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
 
     // Testing
     testImplementation("junit:junit:4.13.2")

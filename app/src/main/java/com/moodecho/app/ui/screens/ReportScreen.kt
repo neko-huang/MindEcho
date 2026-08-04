@@ -43,7 +43,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -58,6 +60,11 @@ import com.moodecho.app.ui.components.getEmotionColor
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.delay
+
+// Top-level date formatters to avoid re-creating SimpleDateFormat instances on every call
+private val inputDateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+private val outputDateFormat = SimpleDateFormat("EEEE, MMM d", Locale.getDefault())
 
 /**
  * Report tab screen: shown as a bottom navigation tab.
@@ -74,10 +81,25 @@ fun ReportTabScreen(
     val snackbarHostState = remember { SnackbarHostState() }
 
     val todayDate = remember { DailyReportViewModel.getTodayDate() }
+    // Use mutable state for the date so it can be updated across midnight
+    var currentDate by remember { mutableStateOf(todayDate) }
+
+    // Periodically check for date changes (every 60s) to handle cross-midnight updates
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(60_000L)
+            val newDate = DailyReportViewModel.getTodayDate()
+            if (newDate != currentDate) {
+                currentDate = newDate
+                viewModel.loadForDate(newDate)
+                viewModel.loadRecentReports()
+            }
+        }
+    }
 
     // Load data on first composition
-    LaunchedEffect(todayDate) {
-        viewModel.loadForDate(todayDate)
+    LaunchedEffect(currentDate) {
+        viewModel.loadForDate(currentDate)
         viewModel.loadRecentReports()
     }
 
@@ -112,7 +134,7 @@ fun ReportTabScreen(
         ) {
             // Date header
             item {
-                val displayDate = formatDateForDisplay(todayDate)
+                val displayDate = formatDateForDisplay(currentDate)
                 Text(
                     text = displayDate,
                     style = MaterialTheme.typography.headlineSmall,
@@ -129,7 +151,7 @@ fun ReportTabScreen(
                     GenerateReportButton(
                         isLoading = uiState.isLoading,
                         sessionCount = uiState.sessionCount,
-                        onClick = { viewModel.generateReport(todayDate) }
+                        onClick = { viewModel.generateReport(currentDate) }
                     )
                 }
             }
@@ -627,13 +649,12 @@ private fun RecentReportCard(
 
 /**
  * Format a date string (yyyy-MM-dd) for display.
+ * Uses cached SimpleDateFormat instances to avoid re-creation overhead.
  */
 private fun formatDateForDisplay(dateStr: String): String {
     return try {
-        val inputFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-        val outputFormat = SimpleDateFormat("EEEE, MMM d", Locale.getDefault())
-        val date = inputFormat.parse(dateStr)
-        outputFormat.format(date ?: Date())
+        val date = inputDateFormat.parse(dateStr)
+        outputDateFormat.format(date ?: Date())
     } catch (e: Exception) {
         dateStr
     }

@@ -1,16 +1,27 @@
 package com.moodecho.app.data.repository
 
 import com.moodecho.app.data.db.dao.DailyReportDao
+import com.moodecho.app.data.db.dao.DailyReportSessionDao
 import com.moodecho.app.data.db.dao.EmotionDataPointDao
 import com.moodecho.app.data.db.dao.RecordingSessionDao
 import com.moodecho.app.data.db.dao.TranscriptEntryDao
 import com.moodecho.app.data.db.entity.DailyReport
+import com.moodecho.app.data.db.entity.DailyReportSession
 import com.moodecho.app.data.db.entity.EmotionDataPoint
 import com.moodecho.app.data.db.entity.RecordingSession
 import com.moodecho.app.data.db.entity.SessionStatus
 import com.moodecho.app.data.db.entity.TranscriptEntry
 import com.moodecho.app.domain.model.EmotionType
 import kotlinx.coroutines.flow.Flow
+
+/**
+ * Sealed class for repository operation results.
+ * Provides type-safe success/error handling.
+ */
+sealed class RepositoryResult<out T> {
+    data class Success<T>(val data: T) : RepositoryResult<T>()
+    data class Error(val message: String, val exception: Throwable? = null) : RepositoryResult<Nothing>()
+}
 
 /**
  * Repository that provides a clean API for accessing recording data.
@@ -20,14 +31,19 @@ class RecordingRepository(
     private val sessionDao: RecordingSessionDao,
     private val transcriptDao: TranscriptEntryDao,
     private val emotionDao: EmotionDataPointDao,
-    private val reportDao: DailyReportDao
+    private val reportDao: DailyReportDao,
+    private val reportSessionDao: DailyReportSessionDao
 ) {
 
     // ---- Session operations ----
 
     /** Create a new recording session and return its ID */
-    suspend fun createSession(session: RecordingSession): Long {
-        return sessionDao.insert(session)
+    suspend fun createSession(session: RecordingSession): RepositoryResult<Long> {
+        return try {
+            RepositoryResult.Success(sessionDao.insert(session))
+        } catch (e: Exception) {
+            RepositoryResult.Error("Failed to create session", e)
+        }
     }
 
     /** Get all sessions as a Flow for reactive UI updates */
@@ -41,35 +57,62 @@ class RecordingRepository(
     }
 
     /** Get a single session by ID */
-    suspend fun getSessionById(id: Long): RecordingSession? {
-        return sessionDao.getSessionById(id)
+    suspend fun getSessionById(id: Long): RepositoryResult<RecordingSession?> {
+        return try {
+            RepositoryResult.Success(sessionDao.getSessionById(id))
+        } catch (e: Exception) {
+            RepositoryResult.Error("Failed to get session", e)
+        }
     }
 
-    /** Get sessions for a specific date (for daily report) */
-    suspend fun getSessionsByDate(date: String): List<RecordingSession> {
-        return sessionDao.getSessionsByDate(date)
+    /** Get sessions for a specific date range (for daily report) */
+    suspend fun getSessionsByDate(dayStart: Long, nextDayStart: Long): RepositoryResult<List<RecordingSession>> {
+        return try {
+            RepositoryResult.Success(sessionDao.getSessionsByDate(dayStart, nextDayStart))
+        } catch (e: Exception) {
+            RepositoryResult.Error("Failed to get sessions by date", e)
+        }
     }
 
     /** Update session status when recording completes */
-    suspend fun completeSession(id: Long, endTime: Long, duration: Long) {
-        sessionDao.updateSessionStatus(id, SessionStatus.COMPLETED.name, endTime, duration)
+    suspend fun completeSession(id: Long, endTime: Long, duration: Long): RepositoryResult<Unit> {
+        return try {
+            sessionDao.updateSessionStatus(id, SessionStatus.COMPLETED.name, endTime, duration)
+            RepositoryResult.Success(Unit)
+        } catch (e: Exception) {
+            RepositoryResult.Error("Failed to complete session", e)
+        }
     }
 
     /** Delete a session and all associated data */
-    suspend fun deleteSession(id: Long) {
-        sessionDao.deleteById(id)
+    suspend fun deleteSession(id: Long): RepositoryResult<Unit> {
+        return try {
+            sessionDao.deleteById(id)
+            RepositoryResult.Success(Unit)
+        } catch (e: Exception) {
+            RepositoryResult.Error("Failed to delete session", e)
+        }
     }
 
     // ---- Transcript operations ----
 
     /** Save a transcript entry */
-    suspend fun saveTranscript(entry: TranscriptEntry): Long {
-        return transcriptDao.insert(entry)
+    suspend fun saveTranscript(entry: TranscriptEntry): RepositoryResult<Long> {
+        return try {
+            RepositoryResult.Success(transcriptDao.insert(entry))
+        } catch (e: Exception) {
+            RepositoryResult.Error("Failed to save transcript", e)
+        }
     }
 
     /** Save multiple transcript entries (batch insert) */
-    suspend fun saveTranscripts(entries: List<TranscriptEntry>) {
-        transcriptDao.insertAll(entries)
+    suspend fun saveTranscripts(entries: List<TranscriptEntry>): RepositoryResult<Unit> {
+        return try {
+            transcriptDao.insertAll(entries)
+            RepositoryResult.Success(Unit)
+        } catch (e: Exception) {
+            RepositoryResult.Error("Failed to save transcripts", e)
+        }
     }
 
     /** Get all transcript entries for a session */
@@ -78,20 +121,33 @@ class RecordingRepository(
     }
 
     /** Get all transcript entries for a session (suspend, one-shot) */
-    suspend fun getTranscriptsForSessionSync(sessionId: Long): List<TranscriptEntry> {
-        return transcriptDao.getTranscriptsForSessionSync(sessionId)
+    suspend fun getTranscriptsForSessionSync(sessionId: Long): RepositoryResult<List<TranscriptEntry>> {
+        return try {
+            RepositoryResult.Success(transcriptDao.getTranscriptsForSessionSync(sessionId))
+        } catch (e: Exception) {
+            RepositoryResult.Error("Failed to get transcripts", e)
+        }
     }
 
     // ---- Emotion data operations ----
 
     /** Save a single emotion data point */
-    suspend fun saveEmotionDataPoint(point: EmotionDataPoint): Long {
-        return emotionDao.insert(point)
+    suspend fun saveEmotionDataPoint(point: EmotionDataPoint): RepositoryResult<Long> {
+        return try {
+            RepositoryResult.Success(emotionDao.insert(point))
+        } catch (e: Exception) {
+            RepositoryResult.Error("Failed to save emotion data point", e)
+        }
     }
 
     /** Save multiple emotion data points (batch insert) */
-    suspend fun saveEmotionDataPoints(points: List<EmotionDataPoint>) {
-        emotionDao.insertAll(points)
+    suspend fun saveEmotionDataPoints(points: List<EmotionDataPoint>): RepositoryResult<Unit> {
+        return try {
+            emotionDao.insertAll(points)
+            RepositoryResult.Success(Unit)
+        } catch (e: Exception) {
+            RepositoryResult.Error("Failed to save emotion data points", e)
+        }
     }
 
     /** Get all emotion data points for a session */
@@ -100,16 +156,19 @@ class RecordingRepository(
     }
 
     /** Get all emotion data points for a session (suspend, one-shot) */
-    suspend fun getEmotionsForSessionSync(sessionId: Long): List<EmotionDataPoint> {
-        return emotionDao.getEmotionsForSessionSync(sessionId)
+    suspend fun getEmotionsForSessionSync(sessionId: Long): RepositoryResult<List<EmotionDataPoint>> {
+        return try {
+            RepositoryResult.Success(emotionDao.getEmotionsForSessionSync(sessionId))
+        } catch (e: Exception) {
+            RepositoryResult.Error("Failed to get emotion data points", e)
+        }
     }
 
     /** Get the dominant emotion for a session */
     suspend fun getDominantEmotion(sessionId: Long): EmotionType? {
-        val emotionName = emotionDao.getDominantEmotionForSession(sessionId) ?: return null
         return try {
-            EmotionType.valueOf(emotionName)
-        } catch (e: IllegalArgumentException) {
+            emotionDao.getDominantEmotionForSession(sessionId)
+        } catch (e: Exception) {
             null
         }
     }
@@ -117,13 +176,21 @@ class RecordingRepository(
     // ---- Daily report operations ----
 
     /** Save or update a daily report */
-    suspend fun saveReport(report: DailyReport): Long {
-        return reportDao.insert(report)
+    suspend fun saveReport(report: DailyReport): RepositoryResult<Long> {
+        return try {
+            RepositoryResult.Success(reportDao.insert(report))
+        } catch (e: Exception) {
+            RepositoryResult.Error("Failed to save report", e)
+        }
     }
 
     /** Get a report for a specific date */
-    suspend fun getReportByDate(date: String): DailyReport? {
-        return reportDao.getReportByDate(date)
+    suspend fun getReportByDate(date: String): RepositoryResult<DailyReport?> {
+        return try {
+            RepositoryResult.Success(reportDao.getReportByDate(date))
+        } catch (e: Exception) {
+            RepositoryResult.Error("Failed to get report", e)
+        }
     }
 
     /** Get all reports as a Flow */
@@ -137,12 +204,44 @@ class RecordingRepository(
     }
 
     /** Delete a daily report */
-    suspend fun deleteReport(report: DailyReport) {
-        reportDao.delete(report)
+    suspend fun deleteReport(report: DailyReport): RepositoryResult<Unit> {
+        return try {
+            reportDao.delete(report)
+            RepositoryResult.Success(Unit)
+        } catch (e: Exception) {
+            RepositoryResult.Error("Failed to delete report", e)
+        }
     }
 
     /** Delete a daily report by its ID */
-    suspend fun deleteReportById(id: Long) {
-        reportDao.deleteById(id)
+    suspend fun deleteReportById(id: Long): RepositoryResult<Unit> {
+        return try {
+            reportDao.deleteById(id)
+            RepositoryResult.Success(Unit)
+        } catch (e: Exception) {
+            RepositoryResult.Error("Failed to delete report", e)
+        }
+    }
+
+    // ---- DailyReportSession (junction table) operations ----
+
+    /** Save session IDs for a daily report */
+    suspend fun saveReportSessions(reportId: Long, sessionIds: List<Long>): RepositoryResult<Unit> {
+        return try {
+            val sessions = sessionIds.map { DailyReportSession(reportId = reportId, sessionId = it) }
+            reportSessionDao.insertAll(sessions)
+            RepositoryResult.Success(Unit)
+        } catch (e: Exception) {
+            RepositoryResult.Error("Failed to save report sessions", e)
+        }
+    }
+
+    /** Get session IDs for a report */
+    suspend fun getSessionIdsForReport(reportId: Long): RepositoryResult<List<Long>> {
+        return try {
+            RepositoryResult.Success(reportSessionDao.getSessionIdsForReport(reportId))
+        } catch (e: Exception) {
+            RepositoryResult.Error("Failed to get report session IDs", e)
+        }
     }
 }

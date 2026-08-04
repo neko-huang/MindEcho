@@ -105,20 +105,26 @@ class TextSentimentAnalyzer {
         val sentences = splitSentences(text)
         val words = tokenize(text)
 
-        // Count raw keyword matches
-        val positiveCount = countWords(text, positiveWords)
-        val negativeCount = countWords(text, negativeWords)
-        val angerCount = countWords(text, angerWords)
-        val sadnessCount = countWords(text, sadnessWords)
-        val anxietyCount = countWords(text, anxietyWords)
-        val calmCount = countWords(text, calmWords)
+        // P1: use character count (excluding punctuation/whitespace) as wordCount
+        // for Chinese text where split-based tokenization yields a single token
+        val charCount = text.count { it.isLetterOrDigit() || it.isChineseChar() }.coerceAtLeast(1)
+        // Also keep traditional word count for mixed Chinese-English text
+        val tokenCount = words.size.coerceAtLeast(1)
+
+        // P1: count words with longest-match-first to avoid substring overlap
+        val positiveCount = countWordsLongestMatch(text, positiveWords)
+        val negativeCount = countWordsLongestMatch(text, negativeWords)
+        val angerCount = countWordsLongestMatch(text, angerWords)
+        val sadnessCount = countWordsLongestMatch(text, sadnessWords)
+        val anxietyCount = countWordsLongestMatch(text, anxietyWords)
+        val calmCount = countWordsLongestMatch(text, calmWords)
 
         // Count intensifiers, hedges, negations
-        val intensifierCount = countWords(text, intensifiers)
-        val hedgeCount = countWords(text, hedges)
-        val negationCount = countWords(text, negations)
-        val cognitiveCount = countWords(text, cognitiveWords)
-        val firstPersonCount = countWords(text, firstPersonPronouns)
+        val intensifierCount = countWordsLongestMatch(text, intensifiers)
+        val hedgeCount = countWordsLongestMatch(text, hedges)
+        val negationCount = countWordsLongestMatch(text, negations)
+        val cognitiveCount = countWordsLongestMatch(text, cognitiveWords)
+        val firstPersonCount = countWordsLongestMatch(text, firstPersonPronouns)
 
         // Sentence-level analysis
         val exclamationCount = text.count { it == '！' || it == '!' }
@@ -137,9 +143,11 @@ class TextSentimentAnalyzer {
         // Apply intensifier/hedge weighting
         val intensityMultiplier = 1.0f + (intensifierCount * 0.3f) - (hedgeCount * 0.2f)
 
+        // P1: use character count for density calculations (more accurate for Chinese)
+        val wordCount = tokenCount.coerceAtLeast(charCount)
+
         // Compute arousal (emotional intensity)
         val totalEmotional = positiveCount + negativeCount + angerCount + sadnessCount + anxietyCount + calmCount
-        val wordCount = words.size.coerceAtLeast(1)
         val emotionalDensity = totalEmotional.toFloat() / wordCount
 
         // Arousal: based on emotional density + exclamation intensity + intensifiers
@@ -155,10 +163,9 @@ class TextSentimentAnalyzer {
         // Compute emotion-specific scores
         val emotionScores = mutableMapOf<EmotionType, Float>()
 
-        // HAPPY score
+        // P2: HAPPY score — removed calmCount contribution (calm words are not happy)
         val happyScore = (effectivePositive.toFloat() / wordCount * 5f
-                + (exclamationCount.toFloat() / wordCount * 3f)
-                + (calmCount.toFloat() / wordCount * 2f))
+                + (exclamationCount.toFloat() / wordCount * 3f))
             .coerceIn(0f, 1f)
         if (happyScore > 0.1f) emotionScores[EmotionType.HAPPY] = happyScore
 
@@ -238,8 +245,9 @@ class TextSentimentAnalyzer {
 
     /**
      * Merge text sentiment with audio-based emotion results.
-     * Text confidence > 0.6 → trust text; audio confidence > 0.6 → trust audio;
-     * otherwise → weighted average.
+     *
+     * P2: uses confidence × support product as fusion weight to avoid
+     * tie-breaking bias toward text when confidences are equal.
      */
     fun mergeWithAudio(
         textResult: SentimentResult,
@@ -255,22 +263,28 @@ class TextSentimentAnalyzer {
             )
         }
 
-        // Aggregate audio results (use most frequent emotion)
-        val audioDominant = audioResults
-            .groupBy { it.emotionType }
-            .maxByOrNull { it.value.size }
-            ?.key ?: EmotionType.NEUTRAL
+        // Aggregate audio results — group by emotion and compute confidence-weighted support
+        val audioGrouped = audioResults.groupBy { it.emotionType }
+        val audioDominant = audioGrouped.maxByOrNull { entry ->
+            entry.value.sumOf { it.confidence.toDouble() }
+        }?.key ?: EmotionType.NEUTRAL
         val audioAvgConfidence = audioResults.map { it.confidence }.average().toFloat()
         val audioAvgArousal = audioResults.map { it.arousal }.average().toFloat()
         val audioAvgValence = audioResults.map { it.valence }.average().toFloat()
 
-        // Weighted fusion based on confidence
-        val textWeight = (textResult.confidence * 0.6f).coerceIn(0.2f, 0.7f)
+        // P2: use confidence × support product as fusion weight
+        // textSupport = text confidence (single result), audioSupport = sum of confidences for dominant emotion
+        val textSupport = textResult.confidence
+        val audioSupport = audioGrouped[audioDominant]?.sumOf { it.confidence.toDouble() }?.toFloat()
+            ?: audioAvgConfidence
+
+        val textWeight = (textSupport * 0.6f).coerceIn(0.2f, 0.7f)
         val audioWeight = 1.0f - textWeight
 
-        val fusedEmotion = if (textResult.confidence > audioAvgConfidence) {
+        // P2: decide fused emotion by confidence × support product
+        val fusedEmotion = if (textResult.confidence * textSupport > audioAvgConfidence * audioSupport) {
             textResult.primaryEmotion
-        } else if (audioAvgConfidence > textResult.confidence) {
+        } else if (audioAvgConfidence * audioSupport > textResult.confidence * textSupport) {
             audioDominant
         } else {
             // Tie: prefer text for valence-heavy emotions, audio for arousal-heavy
@@ -303,41 +317,103 @@ class TextSentimentAnalyzer {
             .filter { it.isNotBlank() }
     }
 
-    private fun countWords(text: String, dictionary: Set<String>): Int {
+    /**
+     * P1: count words with longest-match-first to avoid substring double-counting.
+     * E.g., "开心死" should match before "开心" to avoid double match.
+     */
+    private fun countWordsLongestMatch(text: String, dictionary: Set<String>): Int {
+        // Sort dictionary by length descending so longer words match first
+        val sortedWords = dictionary.sortedByDescending { it.length }
         var count = 0
-        for (word in dictionary) {
+        val matched = BooleanArray(text.length)
+        for (word in sortedWords) {
             var index = 0
             while (true) {
                 index = text.indexOf(word, index)
                 if (index < 0) break
-                count++
+                // Check if this position is already matched by a longer word
+                var alreadyMatched = false
+                for (i in index until (index + word.length)) {
+                    if (matched[i]) {
+                        alreadyMatched = true
+                        break
+                    }
+                }
+                if (!alreadyMatched) {
+                    count++
+                    // Mark positions as matched
+                    for (i in index until (index + word.length)) {
+                        matched[i] = true
+                    }
+                }
                 index += word.length
             }
         }
         return count
     }
 
+    // P1: replace old countWords with new longest-match version
+    private fun countWords(text: String, dictionary: Set<String>): Int {
+        return countWordsLongestMatch(text, dictionary)
+    }
+
     /**
      * Count negated emotional words: "不开心" = negation + positive word.
      * Checks if a negation word appears within 2 characters before an emotional word.
+     *
+     * P1: uses indexOf loop to find ALL occurrences, not just the first.
+     * P3: adds word boundary check for negation words (e.g., "好不" should not match "不").
      */
     private fun countNegatedWords(sentences: List<String>, emotionalWords: Set<String>): Int {
         var count = 0
         for (sentence in sentences) {
             for (word in emotionalWords) {
-                val wordIndex = sentence.indexOf(word)
-                if (wordIndex >= 1) {
-                    val before = sentence.substring(maxOf(0, wordIndex - 2), wordIndex)
+                var searchStart = 0
+                while (true) {
+                    val wordIndex = sentence.indexOf(word, searchStart)
+                    if (wordIndex < 0) break
+
+                    // Check characters before the emotional word (within 2 chars)
+                    val beforeStart = maxOf(0, wordIndex - 2)
+                    val before = sentence.substring(beforeStart, wordIndex)
                     for (neg in negations) {
-                        if (before.contains(neg)) {
-                            count++
-                            break
+                        // P3: word boundary check — ensure negation is not part of another word
+                        // e.g., "好不" should not match "不" as a standalone negation
+                        val negIndex = before.indexOf(neg)
+                        if (negIndex >= 0) {
+                            // Verify the negation is at a word boundary (start of `before` or preceded by a non-Chinese-char)
+                            val globalPos = beforeStart + negIndex
+                            val isWordStart = globalPos == 0 ||
+                                    !isChineseCharOrLetter(sentence[globalPos - 1])
+                            if (isWordStart) {
+                                count++
+                                break
+                            }
                         }
                     }
+                    searchStart = wordIndex + word.length
                 }
             }
         }
         return count
+    }
+
+    // ===== Character Classification Helpers =====
+
+    private fun Char.isChineseChar(): Boolean {
+        val code = this.code
+        return (code in 0x4E00..0x9FFF) || (code in 0x3400..0x4DBF) ||
+                (code in 0x2E80..0x2EFF) || (code in 0x3000..0x303F) ||
+                (code in 0xFF00..0xFFEF)
+    }
+
+    private fun Char.isChineseCharOrLetter(): Boolean {
+        return this.isChineseChar() || this.isLetterOrDigit()
+    }
+
+    private fun String.isChineseChar(): Boolean {
+        if (this.isEmpty()) return false
+        return this.all { it.isChineseChar() }
     }
 
     /**

@@ -31,7 +31,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Divider
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -395,19 +395,29 @@ private fun EmotionSummaryCard(uiState: SessionDetailUiState) {
 
 /**
  * Stacked horizontal bar showing the proportion of each emotion.
+ * Weights are normalized before rendering to avoid floating-point rounding errors
+ * where the sum might not equal exactly 1.0f.
  */
 @Composable
 private fun EmotionDistributionBar(
     distribution: Map<com.moodecho.app.domain.model.EmotionType, Float>,
     modifier: Modifier = Modifier
 ) {
+    val total = distribution.values.sum()
+    // Normalize weights so they sum to exactly 1.0f, eliminating floating-point rounding errors
+    val normalizedDistribution = if (total > 0f) {
+        distribution.mapValues { it.value / total }
+    } else {
+        distribution
+    }
+
     Row(
         modifier = modifier
             .fillMaxWidth()
             .height(32.dp)
             .clip(RoundedCornerShape(8.dp))
     ) {
-        distribution.forEach { (emotion, proportion) ->
+        normalizedDistribution.forEach { (emotion, proportion) ->
             Box(
                 modifier = Modifier
                     .weight(proportion)
@@ -514,7 +524,7 @@ private fun EmotionTimelineSection(uiState: SessionDetailUiState) {
             // Detailed list of emotion data points
             uiState.emotionDataPoints.forEach { dataPoint ->
                 EmotionTimelineItem(dataPoint = dataPoint)
-                Divider(
+                HorizontalDivider(
                     modifier = Modifier.padding(vertical = 2.dp),
                     color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
                 )

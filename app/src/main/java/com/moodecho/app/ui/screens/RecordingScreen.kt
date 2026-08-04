@@ -1,6 +1,5 @@
 package com.moodecho.app.ui.screens
 
-import android.content.Context
 import android.content.Intent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -29,8 +28,9 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -38,27 +38,18 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
-import android.util.Log
-import com.moodecho.app.MindEchoApp
-import com.moodecho.app.data.db.entity.RecordingSession
-import com.moodecho.app.data.db.entity.SessionStatus
-import com.moodecho.app.data.repository.RecordingRepository
 import com.moodecho.app.domain.model.EmotionType
 import com.moodecho.app.service.RecordingService
 import com.moodecho.app.ui.components.EmotionChip
 import com.moodecho.app.ui.components.WaveformAnimation
 import com.moodecho.app.util.AudioRecorder
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-import java.io.File
-import java.text.SimpleDateFormat
-import java.util.Locale
 
 /**
  * Recording screen: displays live waveform, current emotion, and recording controls.
  * Observes the RecordingService state via shared StateFlows.
  * Starts the RecordingService on entry and sends control Intents for pause/resume/stop.
- * After stopping, shows transcription progress if AssemblyAI is configured.
+ * After stopping, the RecordingService handles save + analysis and signals completion
+ * via [RecordingService.processingResult] so the UI can react without hardcoded delays.
  *
  * @param onFinish Callback with session ID when recording is stopped and saved
  * @param onCancel Callback when recording is cancelled
@@ -69,7 +60,6 @@ fun RecordingScreen(
     onCancel: () -> Unit
 ) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
 
     // Observe recording state from the service
     val isRecording by RecordingService.isRecording.collectAsState()
@@ -84,11 +74,14 @@ fun RecordingScreen(
     val isAnalyzing by RecordingService.isAnalyzing.collectAsState()
     val analysisStatus by RecordingService.analysisStatus.collectAsState()
 
+    // Observe processing result from the service (null = pending, -1 = failure, >=0 = sessionId)
+    val processingResult by RecordingService.processingResult.collectAsState()
+
     // Local UI state
     var isPaused by remember { mutableStateOf(false) }
     var currentEmotion by remember { mutableStateOf(EmotionType.NEUTRAL) }
     var emotionConfidence by remember { mutableStateOf(0.5f) }
-    var isStopping by remember { mutableStateOf(false) }
+    var isStopping by rememberSaveable { mutableStateOf(false) }
     var recordingStarted by remember { mutableStateOf(false) }
     // Track amplitude history for real-time emotion estimation
     var amplitudeHistory by remember { mutableStateOf(listOf<Float>()) }
@@ -115,46 +108,64 @@ fun RecordingScreen(
     // Uses a running average of the last ~20 samples (~1 second at 50ms intervals)
     // to estimate arousal level, then maps it to a basic emotion.
     // Low amplitude → CALM, Medium → NEUTRAL, High → HAPPY/EXCITED, Very high → EXCITED
-    LaunchedEffect(amplitude) {
-        if (!isRecording || isPaused || isStopping || isTranscribing || isAnalyzing) return@LaunchedEffect
+    // Uses snapshotFlow to avoid restarting the coroutine on every amplitude change.
+    LaunchedEffect(Unit) {
+        snapshotFlow { amplitude }
+            .collect { currentAmplitude ->
+                if (!isRecording || isPaused || isStopping || isTranscribing || isAnalyzing) return@collect
 
-        // Add current amplitude to history, keep last 20 samples
-        val newHistory = (amplitudeHistory + amplitude).takeLast(20)
-        amplitudeHistory = newHistory
+                // Add current amplitude to history, keep last 20 samples
+                val newHistory = (amplitudeHistory + currentAmplitude).takeLast(20)
+                amplitudeHistory = newHistory
 
-        if (newHistory.size < 5) return@LaunchedEffect // Need at least 5 samples
+                if (newHistory.size < 5) return@collect // Need at least 5 samples
 
-        val avgAmplitude = newHistory.average().toFloat()
-        val maxAmplitude = newHistory.maxOrNull() ?: 0f
-        val variance = if (newHistory.size > 1) {
-            val mean = newHistory.average()
-            newHistory.map { (it - mean) * (it - mean) }.average().toFloat()
-        } else 0f
+                val avgAmplitude = newHistory.average().toFloat()
+                val maxAmplitude = newHistory.maxOrNull() ?: 0f
+                val variance = if (newHistory.size > 1) {
+                    val mean = newHistory.average()
+                    newHistory.map { (it - mean) * (it - mean) }.average().toFloat()
+                } else 0f
 
-        // Rule-based emotion estimation from amplitude features
-        val (emotion, confidence) = when {
-            // High amplitude + high variance = volatile/sudden changes → EXCITED or ANGRY
-            avgAmplitude > 0.35f && variance > 0.02f -> {
-                EmotionType.EXCITED to (avgAmplitude.coerceIn(0.3f, 0.8f))
+                // Rule-based emotion estimation from amplitude features
+                val (emotion, confidence) = when {
+                    // High amplitude + high variance = volatile/sudden changes → EXCITED or ANGRY
+                    avgAmplitude > 0.35f && variance > 0.02f -> {
+                        EmotionType.EXCITED to (avgAmplitude.coerceIn(0.3f, 0.8f))
+                    }
+                    // High amplitude + stable → HAPPY
+                    avgAmplitude > 0.25f && variance < 0.015f -> {
+                        EmotionType.HAPPY to (avgAmplitude.coerceIn(0.4f, 0.75f))
+                    }
+                    // Medium amplitude → NEUTRAL
+                    avgAmplitude in 0.08f..0.25f -> {
+                        EmotionType.NEUTRAL to 0.5f
+                    }
+                    // Low amplitude → CALM
+                    avgAmplitude in 0.02f..0.08f -> {
+                        EmotionType.CALM to ((0.08f - avgAmplitude) / 0.06f).coerceIn(0.3f, 0.7f)
+                    }
+                    // Very low amplitude (near silence) → keep current emotion
+                    else -> currentEmotion to (emotionConfidence * 0.9f) // Decay confidence
+                }
+
+                currentEmotion = emotion
+                emotionConfidence = confidence.coerceIn(0.2f, 0.9f)
             }
-            // High amplitude + stable → HAPPY
-            avgAmplitude > 0.25f && variance < 0.015f -> {
-                EmotionType.HAPPY to (avgAmplitude.coerceIn(0.4f, 0.75f))
+    }
+
+    // React to the service's processing result.
+    // When the service finishes save + analysis, it publishes the session ID (or -1 for failure).
+    // This replaces the unreliable hardcoded delay(1500) approach.
+    LaunchedEffect(processingResult) {
+        if (isStopping && processingResult != null) {
+            val id = processingResult!!
+            if (id >= 0) {
+                onFinish(id)
+            } else {
+                onCancel()
             }
-            // Medium amplitude → NEUTRAL
-            avgAmplitude in 0.08f..0.25f -> {
-                EmotionType.NEUTRAL to 0.5f
-            }
-            // Low amplitude → CALM
-            avgAmplitude in 0.02f..0.08f -> {
-                EmotionType.CALM to ((0.08f - avgAmplitude) / 0.06f).coerceIn(0.3f, 0.7f)
-            }
-            // Very low amplitude (near silence) → keep current emotion
-            else -> currentEmotion to (emotionConfidence * 0.9f) // Decay confidence
         }
-
-        currentEmotion = emotion
-        emotionConfidence = confidence.coerceIn(0.2f, 0.9f)
     }
 
     // Format duration as MM:SS
@@ -297,60 +308,13 @@ fun RecordingScreen(
                         if (isStopping) return@FilledIconButton
                         isStopping = true
 
-                        // Capture the final duration NOW, before the service zeros it
-                        val finalDuration = duration
-
-                        scope.launch {
-                            try {
-                                // Send STOP intent to RecordingService
-                                val stopIntent = Intent(context, RecordingService::class.java).apply {
-                                    action = RecordingService.ACTION_STOP
-                                }
-                                ContextCompat.startForegroundService(context, stopIntent)
-
-                                // Wait for the service to fully stop recording.
-                                // audioRecorder.stop() blocks the main thread (runBlocking for
-                                // amplitude join + MediaRecorder operations), so we need
-                                // enough delay to let it complete before touching the file.
-                                delay(1500)
-
-                                // Save the recording session to the database
-                                val sessionId = saveRecordingToDatabase(
-                                    context = context,
-                                    outputPath = outputPath,
-                                    startTime = sessionStartTime,
-                                    duration = finalDuration
-                                )
-
-                                if (sessionId != null) {
-                                    // Only run analysis if recording was long enough
-                                    // (< 1 sec recordings skip stop() to avoid native crash,
-                                    //  so the AAC file may be empty/corrupt)
-                                    if (finalDuration >= 1000) {
-                                        // Run on-device emotion analysis (AAC → WAV → features → emotions → DB)
-                                        RecordingService.processRecording(
-                                            context = context,
-                                            audioFilePath = outputPath,
-                                            sessionId = sessionId
-                                        )
-
-                                        // Attempt AssemblyAI transcription if configured
-                                        RecordingService.transcribeAudio(
-                                            context = context,
-                                            audioFilePath = outputPath,
-                                            sessionId = sessionId
-                                        )
-                                    }
-
-                                    onFinish(sessionId)
-                                } else {
-                                    onCancel()
-                                }
-                            } catch (e: Exception) {
-                                Log.e("RecordingScreen", "Crash in stop flow", e)
-                                onCancel()
-                            }
+                        // Send STOP intent to RecordingService.
+                        // The service handles save + analysis in its own scope and
+                        // signals completion via processingResult StateFlow.
+                        val stopIntent = Intent(context, RecordingService::class.java).apply {
+                            action = RecordingService.ACTION_STOP
                         }
+                        ContextCompat.startForegroundService(context, stopIntent)
                     },
                     modifier = Modifier.size(72.dp),
                     shape = CircleShape,
@@ -378,53 +342,5 @@ fun RecordingScreen(
                 textAlign = TextAlign.Center
             )
         }
-    }
-}
-
-/**
- * Save the completed recording to the Room database.
- * Creates a RecordingSession entry and returns its ID.
- *
- * Emotion analysis (AAC → WAV conversion, feature extraction, and emotion
- * classification) is handled separately by
- * [RecordingService.processRecording] to keep this function focused on
- * persistence and to allow the analysis to report progress via StateFlows.
- *
- * @param context Android context for accessing app resources
- * @param outputPath Path to the recorded audio file
- * @param startTime Epoch millis when recording started
- * @param duration Duration of the recording in milliseconds
- * @return The ID of the newly created session, or null on failure
- */
-private suspend fun saveRecordingToDatabase(
-    context: Context,
-    outputPath: String,
-    startTime: Long,
-    duration: Long
-): Long? {
-    return try {
-        val app = context.applicationContext as MindEchoApp
-        val db = app.database
-        val repository = RecordingRepository(
-            sessionDao = db.recordingSessionDao(),
-            transcriptDao = db.transcriptEntryDao(),
-            emotionDao = db.emotionDataPointDao(),
-            reportDao = db.dailyReportDao()
-        )
-
-        val endTime = System.currentTimeMillis()
-
-        // Create and insert the recording session
-        val session = RecordingSession(
-            title = "Recording ${SimpleDateFormat("MMM dd, HH:mm", Locale.getDefault()).format(startTime)}",
-            startTime = startTime,
-            endTime = endTime,
-            duration = duration,
-            audioFilePath = outputPath,
-            status = SessionStatus.COMPLETED
-        )
-        repository.createSession(session)
-    } catch (e: Exception) {
-        null
     }
 }

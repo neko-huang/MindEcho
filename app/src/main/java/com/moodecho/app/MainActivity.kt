@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -73,12 +74,15 @@ fun MindEchoMainScreen() {
         }
     }
 
-    // Check if permissions are already granted (e.g. after rotation or returning from settings)
-    val currentlyGranted = requiredPermissions.all { perm ->
-        ContextCompat.checkSelfPermission(context, perm) == PackageManager.PERMISSION_GRANTED
-    }
-    if (currentlyGranted && !hasAllPermissions) {
-        hasAllPermissions = true
+    // Check if permissions are already granted (only once on initial composition)
+    // Using LaunchedEffect(Unit) to avoid redundant checks on every recomposition
+    LaunchedEffect(Unit) {
+        val currentlyGranted = requiredPermissions.all { perm ->
+            ContextCompat.checkSelfPermission(context, perm) == PackageManager.PERMISSION_GRANTED
+        }
+        if (currentlyGranted) {
+            hasAllPermissions = true
+        }
     }
 
     MindEchoNavHost(

@@ -4,5 +4,5 @@
     <!-- Exclude recordings from auto backup (they can be large) -->
     <exclude domain="file" path="recordings/" />
     <!-- Exclude API keys from backup -->
-    <exclude domain="sharedpref" path="mindecho_prefs.preferences_pb" />
+    <exclude domain="sharedpref" path="mindecho_prefs.xml" />
 </full-backup-content>

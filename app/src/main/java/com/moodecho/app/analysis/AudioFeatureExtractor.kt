@@ -1,6 +1,7 @@
 package com.moodecho.app.analysis
 
 import com.moodecho.app.domain.model.FeatureVector
+import java.io.DataInputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.IOException
@@ -37,6 +38,11 @@ class AudioFeatureExtractor {
         private const val F0_MIN_HZ = 60f
         private const val F0_MAX_HZ = 500f
         private const val LOW_PASS_CUTOFF = 0.5f   // Fraction of Nyquist for rolloff
+
+        // P2: OOM protection — process at most 30 minutes of audio (~28.8M samples at 16kHz)
+        private const val MAX_SAMPLES = 28_800_000
+        // P2: chunk size for streaming processing (~30 seconds)
+        private const val CHUNK_SIZE_SAMPLES = 480_000
     }
 
     /**
@@ -67,25 +73,84 @@ class AudioFeatureExtractor {
 
     private fun readWavFile(file: File): FloatArray? {
         try {
+            // P0: guard against files smaller than minimum WAV header
+            if (file.length() < 44) return null
+
             FileInputStream(file).use { fis ->
-                val header = ByteArray(44)
-                if (fis.read(header) < 44) return null
+                val dis = DataInputStream(fis)
 
-                val riff = String(header, 0, 4)
-                if (riff != "RIFF") return null
-                val wave = String(header, 8, 4)
-                if (wave != "WAVE") return null
+                // Read RIFF header (12 bytes)
+                val riffBytes = ByteArray(4)
+                dis.readFully(riffBytes)
+                if (String(riffBytes) != "RIFF") return null
 
-                val channels = ByteBuffer.wrap(header, 22, 2)
-                    .order(ByteOrder.LITTLE_ENDIAN).short.toInt()
-                val sampleRate = ByteBuffer.wrap(header, 24, 4)
-                    .order(ByteOrder.LITTLE_ENDIAN).int
-                val bitsPerSample = ByteBuffer.wrap(header, 34, 2)
-                    .order(ByteOrder.LITTLE_ENDIAN).short.toInt()
+                // Skip file size field (4 bytes, big-endian)
+                dis.readInt()
 
-                val dataSize = (file.length() - 44).toInt()
-                val rawData = ByteArray(dataSize)
-                fis.read(rawData)
+                val waveBytes = ByteArray(4)
+                dis.readFully(waveBytes)
+                if (String(waveBytes) != "WAVE") return null
+
+                // Parse chunks
+                var channels = 0
+                var sampleRate = 0
+                var bitsPerSample = 0
+                var fmtFound = false
+                var dataChunkSize = 0
+
+                // P1: traverse chunks instead of assuming fixed 44-byte header
+                while (true) {
+                    val chunkIdBytes = ByteArray(4)
+                    val bytesRead = dis.read(chunkIdBytes)
+                    if (bytesRead < 4) break
+
+                    val chunkId = String(chunkIdBytes)
+
+                    val sizeBytes = ByteArray(4)
+                    dis.readFully(sizeBytes)
+                    val chunkSize = ByteBuffer.wrap(sizeBytes)
+                        .order(ByteOrder.LITTLE_ENDIAN).int
+
+                    when (chunkId) {
+                        "fmt " -> {
+                            val fmtData = ByteArray(chunkSize.coerceAtMost(1024))
+                            dis.readFully(fmtData)
+                            val fmtBuf = ByteBuffer.wrap(fmtData)
+                                .order(ByteOrder.LITTLE_ENDIAN)
+                            val audioFormat = fmtBuf.short.toInt()
+                            // Only PCM (format 1) supported
+                            if (audioFormat != 1) return null
+                            channels = fmtBuf.short.toInt()
+                            sampleRate = fmtBuf.int
+                            fmtBuf.int // skip byte rate
+                            fmtBuf.short // skip block align
+                            bitsPerSample = fmtBuf.short.toInt()
+                            fmtFound = true
+                            // Skip remaining fmt chunk bytes if larger than 16
+                            val remaining = chunkSize - 16
+                            if (remaining > 0) dis.skipBytes(remaining)
+                        }
+                        "data" -> {
+                            dataChunkSize = chunkSize
+                            break
+                        }
+                        else -> {
+                            // Skip unknown chunk
+                            dis.skipBytes(chunkSize)
+                        }
+                    }
+                }
+
+                if (!fmtFound || dataChunkSize <= 0) return null
+
+                // P2: clamp data size to avoid OOM
+                val actualDataSize = dataChunkSize.coerceAtMost(
+                    MAX_SAMPLES * (bitsPerSample / 8)
+                )
+
+                // P0: use readFully to guarantee buffer is filled
+                val rawData = ByteArray(actualDataSize)
+                dis.readFully(rawData)
 
                 val numSamples = rawData.size / (bitsPerSample / 8)
                 val samples = FloatArray(numSamples)
@@ -99,16 +164,20 @@ class AudioFeatureExtractor {
                     }
                     8 -> {
                         for (i in 0 until numSamples) {
-                            samples[i] = (rawData[i].toInt() and 0xFF - 128) / 128.0f
+                            // P1: fixed operator precedence —
+                            // old: (rawData[i].toInt() and 0xFF - 128)
+                            // new: ((rawData[i].toInt() and 0xFF) - 128)
+                            samples[i] = ((rawData[i].toInt() and 0xFF) - 128) / 128.0f
                         }
                     }
                     else -> return null
                 }
 
+                // P3: stereo mixing — use (L+R)/2 instead of only left channel
                 return if (channels == 2) {
                     val monoSamples = FloatArray(numSamples / 2)
                     for (i in monoSamples.indices) {
-                        monoSamples[i] = samples[i * 2]
+                        monoSamples[i] = (samples[i * 2] + samples[i * 2 + 1]) / 2f
                     }
                     monoSamples
                 } else {
@@ -125,6 +194,8 @@ class AudioFeatureExtractor {
     /**
      * Extract features from each audio frame.
      * Now includes spectral features: MFCC, F0, spectral centroid, spectral rolloff.
+     *
+     * P2: reuses pre-allocated arrays to reduce GC pressure.
      */
     private fun extractFrameFeatures(
         samples: FloatArray,
@@ -138,30 +209,41 @@ class AudioFeatureExtractor {
         var position = 0
         var prevSample = 0f
 
+        // P2: pre-allocate reusable arrays to reduce GC pressure
+        val emphasized = FloatArray(frameLength)
+        val windowed = FloatArray(fftSize)
+        val real = FloatArray(fftSize)
+        val imag = FloatArray(fftSize)
+        val magnitude = FloatArray(fftSize / 2)
+        val power = FloatArray(fftSize / 2)
+
         while (position + frameLength <= samples.size) {
-            val frame = samples.copyOfRange(position, position + frameLength)
+            // Copy frame into emphasized (also serves as working copy)
+            for (i in 0 until frameLength) {
+                emphasized[i] = samples[position + i]
+            }
 
             // Step 1: Pre-emphasis (boost high frequencies)
-            val emphasized = FloatArray(frameLength)
-            emphasized[0] = frame[0] - PRE_EMPHASIS_ALPHA * prevSample
+            val firstVal = emphasized[0] - PRE_EMPHASIS_ALPHA * prevSample
+            prevSample = samples[position + frameLength - 1]
+            emphasized[0] = firstVal
             for (i in 1 until frameLength) {
-                emphasized[i] = frame[i] - PRE_EMPHASIS_ALPHA * frame[i - 1]
+                emphasized[i] = emphasized[i] - PRE_EMPHASIS_ALPHA * samples[position + i - 1]
             }
-            prevSample = frame.last()
 
-            // Step 2: Hamming window
-            val windowed = FloatArray(fftSize)
-            for (i in frame.indices) {
+            // Step 2: Hamming window — zero out windowed, then fill
+            windowed.fill(0f)
+            for (i in 0 until frameLength) {
                 windowed[i] = emphasized[i] *
                         (0.54f - 0.46f * cos(2.0 * PI * i / (frameLength - 1)).toFloat())
             }
 
             // Step 3: FFT → magnitude spectrum
-            val real = windowed.copyOf()
-            val imag = FloatArray(fftSize)
+            // Copy windowed into real, zero out imag
+            System.arraycopy(windowed, 0, real, 0, fftSize)
+            imag.fill(0f)
             fft(real, imag)
-            val magnitude = FloatArray(fftSize / 2)
-            val power = FloatArray(fftSize / 2)
+
             for (i in magnitude.indices) {
                 val re = real[i]
                 val im = imag[i]
@@ -355,6 +437,9 @@ class AudioFeatureExtractor {
     /**
      * Compute fundamental frequency (F0) using autocorrelation.
      * Returns 0 if unvoiced (no clear pitch detected).
+     *
+     * P2: denominator now uses the energy of the overlapping segment for each lag,
+     * instead of the fixed first maxLag samples.
      */
     private fun computeF0(frame: FloatArray, sampleRate: Int): Float {
         val minLag = (sampleRate / F0_MAX_HZ).toInt().coerceAtLeast(1)
@@ -362,29 +447,32 @@ class AudioFeatureExtractor {
 
         if (maxLag <= minLag) return 0f
 
-        // Compute autocorrelation
         var maxCorr = 0.0
         var bestLag = 0
-        var energy = 0.0
-
-        // Compute energy of first maxLag samples
-        for (i in 0 until maxLag) {
-            energy += frame[i].toDouble() * frame[i]
-        }
+        var maxDenom = 0.0
 
         for (lag in minLag..maxLag) {
             var corr = 0.0
-            for (i in 0 until (frame.size - lag)) {
-                corr += frame[i].toDouble() * frame[i + lag]
+            var energy0 = 0.0
+            var energyLag = 0.0
+            val overlap = frame.size - lag
+            for (i in 0 until overlap) {
+                val s0 = frame[i].toDouble()
+                val sLag = frame[i + lag].toDouble()
+                corr += s0 * sLag
+                energy0 += s0 * s0
+                energyLag += sLag * sLag
             }
-            if (corr > maxCorr) {
+            val denom = sqrt(energy0 * energyLag)
+            if (denom > 0.0 && corr > maxCorr) {
                 maxCorr = corr
                 bestLag = lag
+                maxDenom = denom
             }
         }
 
-        // Voicing threshold: correlation must be strong enough
-        val normalizedCorr = if (energy > 0.0) maxCorr / energy else 0.0
+        // Voicing threshold: normalized correlation must be strong enough
+        val normalizedCorr = if (maxDenom > 0.0) maxCorr / maxDenom else 0.0
         return if (normalizedCorr > 0.3) {
             sampleRate.toFloat() / bestLag
         } else {
@@ -554,7 +642,8 @@ class AudioFeatureExtractor {
         for (i in 1 until energies.size) {
             val prev = energies[i - 1]
             val curr = energies[i]
-            if (prev > 0.001f && abs(curr - prev) / prev > 0.5f) {
+            // P3: raised threshold from 0.001f to 0.01f to avoid division-by-zero
+            if (prev > 0.01f && abs(curr - prev) / prev > 0.5f) {
                 significantChanges++
             }
         }

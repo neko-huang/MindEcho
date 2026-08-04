@@ -13,6 +13,7 @@ import com.moodecho.app.data.db.entity.EmotionDataPoint
 import com.moodecho.app.data.db.entity.RecordingSession
 import com.moodecho.app.data.db.entity.TranscriptEntry
 import com.moodecho.app.data.repository.RecordingRepository
+import com.moodecho.app.data.repository.RepositoryResult
 import com.moodecho.app.domain.model.EmotionType
 import com.moodecho.app.util.Constants
 import com.moodecho.app.util.PreferenceManager
@@ -96,6 +97,24 @@ class SessionDetailViewModel(
     private val _uiState = MutableStateFlow(SessionDetailUiState())
     val uiState: StateFlow<SessionDetailUiState> = _uiState.asStateFlow()
 
+    /** Lazily create OkHttpClient to avoid creating new instances on every generateSummary() call */
+    private val okHttpClient: OkHttpClient by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(120, TimeUnit.SECONDS)
+            .writeTimeout(30, TimeUnit.SECONDS)
+            .build()
+    }
+
+    /** Lazily create Retrofit instance — client is shared across all generateSummary() calls */
+    private val retrofit: Retrofit by lazy {
+        Retrofit.Builder()
+            .baseUrl("https://api.deepseek.com/") // placeholder, overridden in generateSummary
+            .client(okHttpClient)
+            .addConverterFactory(GsonConverterFactory.create())
+            .build()
+    }
+
     init {
         val app = application as MindEchoApp
         val db = app.database
@@ -103,7 +122,8 @@ class SessionDetailViewModel(
             sessionDao = db.recordingSessionDao(),
             transcriptDao = db.transcriptEntryDao(),
             emotionDao = db.emotionDataPointDao(),
-            reportDao = db.dailyReportDao()
+            reportDao = db.dailyReportDao(),
+            reportSessionDao = db.dailyReportSessionDao()
         )
         preferenceManager = PreferenceManager(application)
         loadSessionData()
@@ -118,7 +138,17 @@ class SessionDetailViewModel(
 
             try {
                 // Load session metadata
-                val session = repository.getSessionById(sessionId)
+                val sessionResult = repository.getSessionById(sessionId)
+                val session = when (sessionResult) {
+                    is RepositoryResult.Success -> sessionResult.data
+                    is RepositoryResult.Error -> {
+                        _uiState.value = _uiState.value.copy(
+                            isLoading = false,
+                            errorMessage = sessionResult.message
+                        )
+                        return@launch
+                    }
+                }
                 if (session == null) {
                     _uiState.value = _uiState.value.copy(
                         isLoading = false,
@@ -177,8 +207,7 @@ class SessionDetailViewModel(
      * Sends the transcript and emotion data to the LLM for summarization.
      */
     fun generateSummary() {
-        val currentState = _uiState.value
-        if (currentState.isGeneratingSummary) return
+        if (_uiState.value.isGeneratingSummary) return
 
         viewModelScope.launch {
             _uiState.update { it.copy(isGeneratingSummary = true, errorMessage = null) }
@@ -208,22 +237,46 @@ class SessionDetailViewModel(
                     return@launch
                 }
 
-                // Build the prompt from transcript and emotion data
-                val transcriptText = currentState.transcriptEntries.joinToString("\n") { entry ->
+                // Reload latest data from repository to avoid stale snapshots
+                val sessionResult = repository.getSessionById(sessionId)
+                val session = when (sessionResult) {
+                    is RepositoryResult.Success -> sessionResult.data
+                    is RepositoryResult.Error -> null
+                }
+                val transcriptsResult = repository.getTranscriptsForSessionSync(sessionId)
+                val transcripts = when (transcriptsResult) {
+                    is RepositoryResult.Success -> transcriptsResult.data
+                    is RepositoryResult.Error -> emptyList()
+                }
+                val emotionsResult = repository.getEmotionsForSessionSync(sessionId)
+                val emotions = when (emotionsResult) {
+                    is RepositoryResult.Success -> emotionsResult.data
+                    is RepositoryResult.Error -> emptyList()
+                }
+                val dominantEmotion = repository.getDominantEmotion(sessionId)
+                val distribution = computeEmotionDistribution(emotions)
+
+                // Build the prompt from freshly loaded transcript and emotion data
+                val transcriptText = transcripts.joinToString("\n") { entry ->
                     entry.text
                 }.ifBlank { "No transcript available." }
 
-                val emotionSummary = currentState.dominantEmotion?.let {
+                val emotionSummary = dominantEmotion?.let {
                     "Dominant emotion: ${it.displayName} ${it.emoji}"
                 } ?: "No emotion data available."
 
-                val distributionText = if (currentState.emotionDistribution.isNotEmpty()) {
-                    currentState.emotionDistribution.entries.joinToString(", ") { (emotion, pct) ->
+                val distributionText = if (distribution.isNotEmpty()) {
+                    distribution.entries.joinToString(", ") { (emotion, pct) ->
                         "${emotion.displayName}: ${(pct * 100).toInt()}%"
                     }
                 } else {
                     "No distribution data."
                 }
+
+                val duration = session?.let {
+                    val totalSeconds = it.duration / 1000
+                    "%d:%02d".format(totalSeconds / 60, totalSeconds % 60)
+                } ?: "--:--"
 
                 val prompt = """
                     |You are an emotion analysis assistant. Below is a recording session from the MindEcho app.
@@ -234,7 +287,7 @@ class SessionDetailViewModel(
                     |Emotion Analysis:
                     |$emotionSummary
                     |Distribution: $distributionText
-                    |Duration: ${currentState.formattedDuration}
+                    |Duration: $duration
                     |
                     |Please provide a concise summary (3-5 sentences) of this conversation, focusing on:
                     |1. The main topic and flow of the conversation
@@ -244,7 +297,7 @@ class SessionDetailViewModel(
                     |Write the summary in the same language as the transcript.
                 """.trimMargin()
 
-                // Build Retrofit client for DeepSeek with auth interceptor
+                // Build auth interceptor with the current API key
                 val baseUrl = preferenceManager.apiBaseUrl.first()
                 val authInterceptor = Interceptor { chain ->
                     val request = chain.request().newBuilder()
@@ -253,20 +306,19 @@ class SessionDetailViewModel(
                     chain.proceed(request)
                 }
 
-                val okHttpClient = OkHttpClient.Builder()
+                // Create a Retrofit instance with the correct base URL and auth interceptor
+                // Use a new OkHttpClient with the auth interceptor but share the connection pool
+                val clientWithAuth = okHttpClient.newBuilder()
                     .addInterceptor(authInterceptor)
-                    .connectTimeout(30, TimeUnit.SECONDS)
-                    .readTimeout(60, TimeUnit.SECONDS)
-                    .writeTimeout(30, TimeUnit.SECONDS)
                     .build()
 
-                val retrofit = Retrofit.Builder()
+                val retrofitWithUrl = Retrofit.Builder()
                     .baseUrl(baseUrl)
-                    .client(okHttpClient)
+                    .client(clientWithAuth)
                     .addConverterFactory(GsonConverterFactory.create())
                     .build()
 
-                val llmApi = retrofit.create(LlmApi::class.java)
+                val llmApi = retrofitWithUrl.create(LlmApi::class.java)
 
                 val request = ChatCompletionRequest(
                     model = Constants.LLM_MODEL,

@@ -24,15 +24,22 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.moodecho.app.util.PreferenceManager
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.launch
 
 /**
  * Settings screen: API configuration, privacy controls, and app information.
@@ -55,6 +62,44 @@ fun SettingsScreen() {
 
     // Reactive state from the in-memory StateFlow (always up-to-date, no race conditions)
     val settings by preferenceManager.settingsState.collectAsState()
+
+    // Local state for text fields with debounced writes to SharedPreferences
+    var localDeepseekApiKey by remember { mutableStateOf(settings.deepseekApiKey ?: "") }
+    var localApiBaseUrl by remember { mutableStateOf(settings.apiBaseUrl) }
+    var localAssemblyAiApiKey by remember { mutableStateOf(settings.assemblyAiApiKey ?: "") }
+
+    // Sync from StateFlow when external changes happen (e.g. rotation restore)
+    LaunchedEffect(settings.deepseekApiKey, settings.apiBaseUrl, settings.assemblyAiApiKey) {
+        localDeepseekApiKey = settings.deepseekApiKey ?: ""
+        localApiBaseUrl = settings.apiBaseUrl
+        localAssemblyAiApiKey = settings.assemblyAiApiKey ?: ""
+    }
+
+    // Debounced writes: 300ms after the user stops typing, persist to SharedPreferences
+    LaunchedEffect(Unit) {
+        launch {
+            snapshotFlow { localDeepseekApiKey }
+                .debounce(300)
+                .distinctUntilChanged()
+                .collect { preferenceManager.saveDeepseekApiKey(it) }
+        }
+    }
+    LaunchedEffect(Unit) {
+        launch {
+            snapshotFlow { localApiBaseUrl }
+                .debounce(300)
+                .distinctUntilChanged()
+                .collect { preferenceManager.saveApiBaseUrl(it) }
+        }
+    }
+    LaunchedEffect(Unit) {
+        launch {
+            snapshotFlow { localAssemblyAiApiKey }
+                .debounce(300)
+                .distinctUntilChanged()
+                .collect { preferenceManager.saveAssemblyAiApiKey(it) }
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -95,10 +140,10 @@ fun SettingsScreen() {
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // DeepSeek API Key input — save immediately on every keystroke
+            // DeepSeek API Key input — debounced write to SharedPreferences
             OutlinedTextField(
-                value = settings.deepseekApiKey ?: "",
-                onValueChange = { preferenceManager.saveDeepseekApiKey(it) },
+                value = localDeepseekApiKey,
+                onValueChange = { localDeepseekApiKey = it },
                 label = { Text("DeepSeek API Key") },
                 placeholder = { Text("sk-...") },
                 modifier = Modifier.fillMaxWidth(),
@@ -108,10 +153,10 @@ fun SettingsScreen() {
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // API Base URL input — save immediately on every keystroke
+            // API Base URL input — debounced write to SharedPreferences
             OutlinedTextField(
-                value = settings.apiBaseUrl,
-                onValueChange = { preferenceManager.saveApiBaseUrl(it) },
+                value = localApiBaseUrl,
+                onValueChange = { localApiBaseUrl = it },
                 label = { Text("API Base URL") },
                 placeholder = { Text("https://api.deepseek.com/") },
                 modifier = Modifier.fillMaxWidth(),
@@ -244,10 +289,10 @@ fun SettingsScreen() {
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // AssemblyAI API Key input — save immediately on every keystroke
+            // AssemblyAI API Key input — debounced write to SharedPreferences
             OutlinedTextField(
-                value = settings.assemblyAiApiKey ?: "",
-                onValueChange = { preferenceManager.saveAssemblyAiApiKey(it) },
+                value = localAssemblyAiApiKey,
+                onValueChange = { localAssemblyAiApiKey = it },
                 label = { Text("AssemblyAI API Key") },
                 placeholder = { Text("Your AssemblyAI API key") },
                 modifier = Modifier.fillMaxWidth(),

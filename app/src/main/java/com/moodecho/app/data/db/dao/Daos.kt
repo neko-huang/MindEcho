@@ -6,9 +6,11 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import com.moodecho.app.data.db.entity.DailyReport
+import com.moodecho.app.data.db.entity.DailyReportSession
 import com.moodecho.app.data.db.entity.EmotionDataPoint
 import com.moodecho.app.data.db.entity.RecordingSession
 import com.moodecho.app.data.db.entity.TranscriptEntry
+import com.moodecho.app.domain.model.EmotionType
 import kotlinx.coroutines.flow.Flow
 
 /**
@@ -29,8 +31,8 @@ interface RecordingSessionDao {
     @Query("SELECT * FROM recording_sessions WHERE id = :id")
     suspend fun getSessionById(id: Long): RecordingSession?
 
-    @Query("SELECT * FROM recording_sessions WHERE date(startTime / 1000, 'unixepoch') = :date")
-    suspend fun getSessionsByDate(date: String): List<RecordingSession>
+    @Query("SELECT * FROM recording_sessions WHERE startTime >= :dayStart AND startTime < :nextDayStart")
+    suspend fun getSessionsByDate(dayStart: Long, nextDayStart: Long): List<RecordingSession>
 
     @Query("UPDATE recording_sessions SET status = :status, endTime = :endTime, duration = :duration WHERE id = :id")
     suspend fun updateSessionStatus(id: Long, status: String, endTime: Long, duration: Long)
@@ -83,7 +85,7 @@ interface EmotionDataPointDao {
     suspend fun getEmotionsForSessionSync(sessionId: Long): List<EmotionDataPoint>
 
     @Query("SELECT emotionType FROM emotion_data_points WHERE sessionId = :sessionId GROUP BY emotionType ORDER BY COUNT(*) DESC LIMIT 1")
-    suspend fun getDominantEmotionForSession(sessionId: Long): String?
+    suspend fun getDominantEmotionForSession(sessionId: Long): EmotionType?
 
     @Query("DELETE FROM emotion_data_points WHERE sessionId = :sessionId")
     suspend fun deleteForSession(sessionId: Long)
@@ -112,4 +114,29 @@ interface DailyReportDao {
 
     @Query("DELETE FROM daily_reports WHERE id = :id")
     suspend fun deleteById(id: Long)
+}
+
+/**
+ * Data Access Object for DailyReportSession junction entities.
+ */
+@Dao
+interface DailyReportSessionDao {
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(session: DailyReportSession): Long
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAll(sessions: List<DailyReportSession>)
+
+    @Query("SELECT * FROM daily_report_sessions WHERE reportId = :reportId")
+    suspend fun getSessionsForReport(reportId: Long): List<DailyReportSession>
+
+    @Query("SELECT sessionId FROM daily_report_sessions WHERE reportId = :reportId")
+    suspend fun getSessionIdsForReport(reportId: Long): List<Long>
+
+    @Query("DELETE FROM daily_report_sessions WHERE reportId = :reportId")
+    suspend fun deleteForReport(reportId: Long)
+
+    @Query("DELETE FROM daily_report_sessions WHERE reportId = :reportId AND sessionId = :sessionId")
+    suspend fun deleteSessionFromReport(reportId: Long, sessionId: Long)
 }

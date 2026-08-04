@@ -17,13 +17,20 @@ class MindEchoApp : Application() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        isInitialized = true
     }
 
     companion object {
         @Volatile
         private lateinit var instance: MindEchoApp
 
+        @Volatile
+        private var isInitialized: Boolean = false
+
         /** Get the application instance for accessing global resources */
-        fun getInstance(): MindEchoApp = instance
+        fun getInstance(): MindEchoApp {
+            check(isInitialized) { "MindEchoApp has not been initialized yet. Make sure to call onCreate() first." }
+            return instance
+        }
     }
 }

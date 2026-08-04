@@ -54,6 +54,17 @@ class EmotionAnalyzer {
         // Rolloff thresholds
         private const val ROLLOFF_HIGH_THRESHOLD = 3500f  // Wide bandwidth (excited, angry)
         private const val ROLLOFF_LOW_THRESHOLD = 2200f   // Narrow bandwidth (sad, calm)
+
+        // P1: theoretical maximum scores for each emotion (used for confidence normalization)
+        private val MAX_SCORES = mapOf(
+            EmotionType.ANGRY to 7.0f,    // 1.0 + 2.0 + 1.5 + 1.5 + 1.0
+            EmotionType.EXCITED to 6.0f,  // 1.0 + 1.5 + 1.0 + 1.5 + 1.0
+            EmotionType.HAPPY to 5.5f,    // 1.0 + 1.5 + 1.0 + 1.0 + 1.0
+            EmotionType.SAD to 8.0f,      // 1.5 + 2.0 + 1.5 + 1.0 + 1.0 + 1.0
+            EmotionType.ANXIOUS to 6.5f,  // 1.0 + 2.0 + 1.5 + 1.0 + 1.0
+            EmotionType.CALM to 5.5f,     // 1.0 + 1.5 + 1.0 + 1.0 + 1.0
+            EmotionType.NEUTRAL to 1.0f
+        )
     }
 
     /**
@@ -65,10 +76,18 @@ class EmotionAnalyzer {
     fun analyze(featureVectors: List<FeatureVector>): List<EmotionResult> {
         if (featureVectors.isEmpty()) return emptyList()
 
-        val maxEnergy = featureVectors.maxOfOrNull { it.averageEnergy }?.coerceAtLeast(0.01f) ?: 0.01f
+        // P2: use absolute energy thresholds and quantile-based normalization
+        // instead of max-based normalization (which lets short bursts dominate)
+        val sortedEnergies = featureVectors.map { it.averageEnergy }.sorted()
+        val p95Energy = if (sortedEnergies.size >= 20) {
+            sortedEnergies[(sortedEnergies.size * 0.95).toInt().coerceAtMost(sortedEnergies.size - 1)]
+        } else {
+            sortedEnergies.lastOrNull()?.coerceAtLeast(0.01f) ?: 0.01f
+        }
 
         return featureVectors.map { fv ->
-            val normalizedEnergy = fv.averageEnergy / maxEnergy
+            // P2: normalize by 95th percentile instead of max, avoids short burst domination
+            val normalizedEnergy = (fv.averageEnergy / p95Energy).coerceIn(0f, 1.2f)
             classifyEmotion(fv, normalizedEnergy)
         }
     }
@@ -106,183 +125,132 @@ class EmotionAnalyzer {
         // Scores are weighted: V2 spectral features count more than V1.
         data class EmotionScore(val type: EmotionType, var score: Float, var matchCount: Int)
 
-        val scores = EmotionType.entries.map { EmotionScore(it, 0f, 0) }
+        // P1: use Map<EmotionType, EmotionScore> instead of array indexed by ordinal
+        val scores = EmotionType.entries.associateWith { EmotionScore(it, 0f, 0) }.toMutableMap()
 
         // --- ANGRY: High energy + high pitch + bright spectrum + unstable + wide bandwidth ---
         if (isHighEnergy) {
-            scores[EmotionType.ANGRY.ordinal].apply {
-                score += 1.0f; matchCount++
-            }
+            scores[EmotionType.ANGRY]!!.apply { score += 1.0f; matchCount++ }
         }
         if (isHighPitch) {
-            scores[EmotionType.ANGRY.ordinal].apply {
-                score += 2.0f; matchCount++  // Strong indicator
-            }
+            scores[EmotionType.ANGRY]!!.apply { score += 2.0f; matchCount++ }
         }
-        if (isBright && isBrightCentroid) {
-            scores[EmotionType.ANGRY.ordinal].apply {
-                score += 1.5f; matchCount++
-            }
+        // P2: isBright and isBrightCentroid each contribute independently (0.75 each)
+        if (isBright) {
+            scores[EmotionType.ANGRY]!!.apply { score += 0.75f; matchCount++ }
+        }
+        if (isBrightCentroid) {
+            scores[EmotionType.ANGRY]!!.apply { score += 0.75f; matchCount++ }
         }
         if (isUnstable && isHighVariance) {
-            scores[EmotionType.ANGRY.ordinal].apply {
-                score += 1.5f; matchCount++
-            }
+            scores[EmotionType.ANGRY]!!.apply { score += 1.5f; matchCount++ }
         }
         if (isWideBandwidth) {
-            scores[EmotionType.ANGRY.ordinal].apply {
-                score += 1.0f; matchCount++
-            }
+            scores[EmotionType.ANGRY]!!.apply { score += 1.0f; matchCount++ }
         }
 
         // --- EXCITED: High energy + moderate-to-high pitch + bright + fast rate + few pauses ---
         if (isHighEnergy) {
-            scores[EmotionType.EXCITED.ordinal].apply {
-                score += 1.0f; matchCount++
-            }
+            scores[EmotionType.EXCITED]!!.apply { score += 1.0f; matchCount++ }
         }
         if (isFastRate) {
-            scores[EmotionType.EXCITED.ordinal].apply {
-                score += 1.5f; matchCount++
-            }
+            scores[EmotionType.EXCITED]!!.apply { score += 1.5f; matchCount++ }
         }
         if (hasFewPauses) {
-            scores[EmotionType.EXCITED.ordinal].apply {
-                score += 1.0f; matchCount++
-            }
+            scores[EmotionType.EXCITED]!!.apply { score += 1.0f; matchCount++ }
         }
         if (isPitchVariable) {
-            scores[EmotionType.EXCITED.ordinal].apply {
-                score += 1.5f; matchCount++
-            }
+            scores[EmotionType.EXCITED]!!.apply { score += 1.5f; matchCount++ }
         }
         if (isBrightCentroid) {
-            scores[EmotionType.EXCITED.ordinal].apply {
-                score += 1.0f; matchCount++
-            }
+            scores[EmotionType.EXCITED]!!.apply { score += 1.0f; matchCount++ }
         }
 
         // --- HAPPY: High energy + moderate pitch + stable + bright + few pauses ---
         if (isHighEnergy) {
-            scores[EmotionType.HAPPY.ordinal].apply {
-                score += 1.0f; matchCount++
-            }
+            scores[EmotionType.HAPPY]!!.apply { score += 1.0f; matchCount++ }
         }
         if (!isHighPitch && !isLowPitch && fv.fundamentalFrequency > 0f) {
-            scores[EmotionType.HAPPY.ordinal].apply {
-                score += 1.5f; matchCount++  // Moderate pitch = happy
-            }
+            scores[EmotionType.HAPPY]!!.apply { score += 1.5f; matchCount++ }
         }
-        if (isBright && isBrightCentroid) {
-            scores[EmotionType.HAPPY.ordinal].apply {
-                score += 1.0f; matchCount++
-            }
+        if (isBright) {
+            scores[EmotionType.HAPPY]!!.apply { score += 0.5f; matchCount++ }
+        }
+        if (isBrightCentroid) {
+            scores[EmotionType.HAPPY]!!.apply { score += 0.5f; matchCount++ }
         }
         if (hasFewPauses) {
-            scores[EmotionType.HAPPY.ordinal].apply {
-                score += 1.0f; matchCount++
-            }
+            scores[EmotionType.HAPPY]!!.apply { score += 1.0f; matchCount++ }
         }
         if (!isUnstable) {
-            scores[EmotionType.HAPPY.ordinal].apply {
-                score += 1.0f; matchCount++
-            }
+            scores[EmotionType.HAPPY]!!.apply { score += 1.0f; matchCount++ }
         }
 
         // --- SAD: Low energy + low pitch + dark spectrum + slow + many pauses ---
         if (isLowEnergy) {
-            scores[EmotionType.SAD.ordinal].apply {
-                score += 1.5f; matchCount++
-            }
+            scores[EmotionType.SAD]!!.apply { score += 1.5f; matchCount++ }
         }
         if (isLowPitch) {
-            scores[EmotionType.SAD.ordinal].apply {
-                score += 2.0f; matchCount++  // Strong indicator
-            }
+            scores[EmotionType.SAD]!!.apply { score += 2.0f; matchCount++ }
         }
-        if (isDark && isDarkCentroid) {
-            scores[EmotionType.SAD.ordinal].apply {
-                score += 1.5f; matchCount++
-            }
+        if (isDark) {
+            scores[EmotionType.SAD]!!.apply { score += 0.75f; matchCount++ }
+        }
+        if (isDarkCentroid) {
+            scores[EmotionType.SAD]!!.apply { score += 0.75f; matchCount++ }
         }
         if (isSlowRate) {
-            scores[EmotionType.SAD.ordinal].apply {
-                score += 1.0f; matchCount++
-            }
+            scores[EmotionType.SAD]!!.apply { score += 1.0f; matchCount++ }
         }
         if (hasManyPauses) {
-            scores[EmotionType.SAD.ordinal].apply {
-                score += 1.0f; matchCount++
-            }
+            scores[EmotionType.SAD]!!.apply { score += 1.0f; matchCount++ }
         }
         if (isNarrowBandwidth) {
-            scores[EmotionType.SAD.ordinal].apply {
-                score += 1.0f; matchCount++
-            }
+            scores[EmotionType.SAD]!!.apply { score += 1.0f; matchCount++ }
         }
 
         // --- ANXIOUS: Medium energy + irregular pitch + moderate pauses + unstable ---
         if (!isHighEnergy && !isLowEnergy) {
-            scores[EmotionType.ANXIOUS.ordinal].apply {
-                score += 1.0f; matchCount++
-            }
+            scores[EmotionType.ANXIOUS]!!.apply { score += 1.0f; matchCount++ }
         }
         if (isPitchVariable) {
-            scores[EmotionType.ANXIOUS.ordinal].apply {
-                score += 2.0f; matchCount++  // Strong indicator
-            }
+            scores[EmotionType.ANXIOUS]!!.apply { score += 2.0f; matchCount++ }
         }
         if (isModeratelyUnstable) {
-            scores[EmotionType.ANXIOUS.ordinal].apply {
-                score += 1.5f; matchCount++
-            }
+            scores[EmotionType.ANXIOUS]!!.apply { score += 1.5f; matchCount++ }
         }
         if (hasManyPauses) {
-            scores[EmotionType.ANXIOUS.ordinal].apply {
-                score += 1.0f; matchCount++
-            }
+            scores[EmotionType.ANXIOUS]!!.apply { score += 1.0f; matchCount++ }
         }
         if (isHighPitch) {
-            scores[EmotionType.ANXIOUS.ordinal].apply {
-                score += 1.0f; matchCount++
-            }
+            scores[EmotionType.ANXIOUS]!!.apply { score += 1.0f; matchCount++ }
         }
 
         // --- CALM: Low energy + stable pitch + dark + low variance + few pauses ---
         if (isLowEnergy || (!isHighEnergy && !isLowEnergy)) {
-            scores[EmotionType.CALM.ordinal].apply {
-                score += 1.0f; matchCount++
-            }
+            scores[EmotionType.CALM]!!.apply { score += 1.0f; matchCount++ }
         }
         if (isPitchStable) {
-            scores[EmotionType.CALM.ordinal].apply {
-                score += 1.5f; matchCount++
-            }
+            scores[EmotionType.CALM]!!.apply { score += 1.5f; matchCount++ }
         }
         if (isLowVariance) {
-            scores[EmotionType.CALM.ordinal].apply {
-                score += 1.0f; matchCount++
-            }
+            scores[EmotionType.CALM]!!.apply { score += 1.0f; matchCount++ }
         }
         if (hasFewPauses && !isFastRate) {
-            scores[EmotionType.CALM.ordinal].apply {
-                score += 1.0f; matchCount++
-            }
+            scores[EmotionType.CALM]!!.apply { score += 1.0f; matchCount++ }
         }
         if (isDarkCentroid) {
-            scores[EmotionType.CALM.ordinal].apply {
-                score += 1.0f; matchCount++
-            }
+            scores[EmotionType.CALM]!!.apply { score += 1.0f; matchCount++ }
         }
 
         // ===== Select Best Match =====
         // Find the emotion with the highest score, minimum 2 indicators matched
-        val bestMatch = scores
+        val bestMatch = scores.values
             .filter { it.matchCount >= 2 }
             .maxByOrNull { it.score }
 
         return if (bestMatch != null) {
-            val confidence = computeConfidence(bestMatch.score, bestMatch.matchCount)
+            val confidence = computeConfidence(bestMatch.type, bestMatch.score, bestMatch.matchCount)
             EmotionResult(
                 emotionType = bestMatch.type,
                 confidence = confidence.coerceIn(0.3f, 0.95f),
@@ -310,9 +278,12 @@ class EmotionAnalyzer {
     /**
      * Compute confidence from score and match count.
      * Higher score + more matches = higher confidence.
+     *
+     * P1: uses emotion-specific maxScore instead of hardcoded 10f denominator.
      */
-    private fun computeConfidence(score: Float, matchCount: Int): Float {
-        val baseConfidence = (score / 10f).coerceIn(0.3f, 0.8f)
+    private fun computeConfidence(emotionType: EmotionType, score: Float, matchCount: Int): Float {
+        val maxScore = MAX_SCORES[emotionType] ?: 10f
+        val baseConfidence = (score / maxScore).coerceIn(0.3f, 0.8f)
         val countBonus = (matchCount - 2) * 0.05f
         return (baseConfidence + countBonus).coerceIn(0.3f, 0.95f)
     }
@@ -329,11 +300,15 @@ class EmotionAnalyzer {
         }
     }
 
+    /**
+     * P3: determines dominant emotion weighted by confidence.
+     * Previously just counted occurrences without considering confidence.
+     */
     fun getDominantEmotion(results: List<EmotionResult>): EmotionType {
         if (results.isEmpty()) return EmotionType.NEUTRAL
         return results
             .groupBy { it.emotionType }
-            .maxByOrNull { it.value.size }
+            .maxByOrNull { entry -> entry.value.sumOf { it.confidence.toDouble() } }
             ?.key ?: EmotionType.NEUTRAL
     }
 

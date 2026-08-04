@@ -12,6 +12,12 @@
 -keepattributes Signature
 -keepattributes *Annotation*
 -keep class com.google.gson.** { *; }
+-keepclassmembers class * {
+    @com.google.gson.annotations.SerializedName <fields>;
+}
+-keepclassmembers class com.moodecho.app.data.api.** {
+    <fields>;
+}
 
 # Room
 -keep class * extends androidx.room.RoomDatabase

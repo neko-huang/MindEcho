@@ -27,6 +27,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
@@ -86,13 +87,24 @@ fun WaveformAnimation(
     )
 
     // Maintain a history of amplitude values for smooth animation
-    val amplitudeHistory = remember { mutableStateListOf(*Array(barCount) { 0f }) }
+    // Start with empty list; fill with initial values in LaunchedEffect to avoid
+    // the first 40 frames displaying all-zero bars
+    val amplitudeHistory = remember { mutableStateListOf<Float>() }
 
-    // Shift history and add current amplitude
-    if (amplitudeHistory.size > barCount) {
-        amplitudeHistory.removeAt(0)
+    // Fill initial values after first composition
+    LaunchedEffect(Unit) {
+        if (amplitudeHistory.isEmpty()) {
+            amplitudeHistory.addAll(List(barCount) { 0f })
+        }
     }
-    amplitudeHistory.add(amplitude)
+
+    // Shift history and add current amplitude (only if already initialized)
+    if (amplitudeHistory.isNotEmpty()) {
+        if (amplitudeHistory.size > barCount) {
+            amplitudeHistory.removeAt(0)
+        }
+        amplitudeHistory.add(amplitude)
+    }
 
     Row(
         horizontalArrangement = Arrangement.Center,
@@ -144,19 +156,43 @@ fun EmotionChip(
 ) {
     val color = getEmotionColor(emotionType)
 
-    Card(
-        modifier = modifier,
-        colors = CardDefaults.cardColors(
-            containerColor = if (isSelected) color.copy(alpha = 0.3f)
-            else MaterialTheme.colorScheme.surfaceVariant
-        ),
-        shape = RoundedCornerShape(16.dp),
-        onClick = onClick ?: {}
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+    if (onClick != null) {
+        Card(
+            modifier = modifier,
+            colors = CardDefaults.cardColors(
+                containerColor = if (isSelected) color.copy(alpha = 0.3f)
+                else MaterialTheme.colorScheme.surfaceVariant
+            ),
+            shape = RoundedCornerShape(16.dp),
+            onClick = onClick
         ) {
+            EmotionChipContent(emotionType, confidence, color, isSelected)
+        }
+    } else {
+        Card(
+            modifier = modifier,
+            colors = CardDefaults.cardColors(
+                containerColor = if (isSelected) color.copy(alpha = 0.3f)
+                else MaterialTheme.colorScheme.surfaceVariant
+            ),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            EmotionChipContent(emotionType, confidence, color, isSelected)
+        }
+    }
+}
+
+@Composable
+private fun EmotionChipContent(
+    emotionType: EmotionType,
+    confidence: Float?,
+    color: Color,
+    isSelected: Boolean
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+    ) {
             // Color indicator dot
             Box(
                 modifier = Modifier

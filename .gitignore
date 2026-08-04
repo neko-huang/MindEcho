@@ -85,3 +85,8 @@ lint-results_files/
 # Secrets
 *.keystore
 *.jks
+# Gradle properties (may contain signing credentials)
+gradle.properties
+
+# Room schema export (auto-generated)
+app/schemas/

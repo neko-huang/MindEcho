@@ -2,6 +2,8 @@ package com.moodecho.app.util
 
 import android.content.Context
 import android.content.SharedPreferences
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKey
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -10,7 +12,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 
 /**
- * Manages app preferences using SharedPreferences with an in-memory StateFlow layer.
+ * Manages app preferences using EncryptedSharedPreferences with an in-memory StateFlow layer.
  *
  * Why SharedPreferences instead of DataStore?
  * - DataStore relies on async Flow + file I/O, which creates race conditions when
@@ -18,6 +20,10 @@ import kotlinx.coroutines.flow.update
  * - SharedPreferences writes are synchronous in-memory (apply() updates the in-memory
  *   cache immediately, and getXxx() reads from that cache), eliminating all async races.
  * - The in-memory StateFlow keeps the reactive API for existing consumers (ViewModels, Services).
+ *
+ * Security:
+ * - Uses EncryptedSharedPreferences (AndroidX Security Crypto) to encrypt API keys at rest.
+ * - MasterKey is generated using AES256_GCM with device-bound key store.
  *
  * Design:
  * - All saveXxx() methods write to SharedPreferences synchronously AND update the
@@ -28,10 +34,19 @@ import kotlinx.coroutines.flow.update
  */
 class PreferenceManager(private val context: Context) {
 
-    // ---- SharedPreferences (synchronous storage) ----
+    // ---- EncryptedSharedPreferences (secure storage) ----
 
-    private val prefs: SharedPreferences = context.applicationContext
-        .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    private val masterKey = MasterKey.Builder(context.applicationContext)
+        .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+        .build()
+
+    private val prefs: SharedPreferences = EncryptedSharedPreferences.create(
+        context.applicationContext,
+        PREFS_NAME,
+        masterKey,
+        EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+    )
 
     // ---- In-memory reactive state (always up-to-date) ----
 
@@ -48,7 +63,7 @@ class PreferenceManager(private val context: Context) {
     private val _settingsState = MutableStateFlow(loadSettings())
     val settingsState: StateFlow<SettingsState> = _settingsState.asStateFlow()
 
-    /** Load all settings from SharedPreferences synchronously */
+    /** Load all settings from EncryptedSharedPreferences synchronously */
     private fun loadSettings(): SettingsState {
         return SettingsState(
             deepseekApiKey = prefs.getString(KEY_DEEPSEEK_API_KEY, null),
@@ -119,7 +134,7 @@ class PreferenceManager(private val context: Context) {
         _settingsState.update { it.copy(privacyConsented = consented) }
     }
 
-    /** Save all settings in a single SharedPreferences transaction */
+    /** Save all settings in a single EncryptedSharedPreferences transaction */
     fun saveAll(
         deepseekApiKey: String,
         apiBaseUrl: String,

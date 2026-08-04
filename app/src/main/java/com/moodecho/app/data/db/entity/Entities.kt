@@ -1,6 +1,5 @@
 package com.moodecho.app.data.db.entity
 
-import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
@@ -89,10 +88,31 @@ data class EmotionDataPoint(
 data class DailyReport(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val date: String,                       // format: "yyyy-MM-dd"
-    @ColumnInfo(name = "sessionIdList") val sessionIdList: String, // comma-separated session IDs
     val summary: String,                    // LLM-generated key conversation summary
     val emotionOverview: String,            // LLM-generated emotion overview for the day
     val suggestions: String,                // LLM-generated suggestions
     val overallMood: EmotionType,           // dominant mood of the day
     val createdAt: Long                     // epoch millis
+)
+
+/**
+ * Junction table linking daily reports to their recording sessions.
+ * Replaces the comma-separated sessionIdList in DailyReport for proper normalization.
+ */
+@Entity(
+    tableName = "daily_report_sessions",
+    foreignKeys = [
+        ForeignKey(
+            entity = DailyReport::class,
+            parentColumns = ["id"],
+            childColumns = ["reportId"],
+            onDelete = ForeignKey.CASCADE
+        )
+    ],
+    indices = [Index("reportId"), Index("sessionId")]
+)
+data class DailyReportSession(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val reportId: Long,
+    val sessionId: Long
 )

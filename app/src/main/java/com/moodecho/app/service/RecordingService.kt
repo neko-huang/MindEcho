@@ -21,13 +21,17 @@ import com.moodecho.app.data.api.TranscriptRequest
 import com.moodecho.app.data.api.TranscriptResponse
 import com.moodecho.app.data.api.UploadResponse
 import com.moodecho.app.data.db.entity.EmotionDataPoint
+import com.moodecho.app.data.db.entity.RecordingSession
+import com.moodecho.app.data.db.entity.SessionStatus
 import com.moodecho.app.data.db.entity.TranscriptEntry
 import com.moodecho.app.data.repository.RecordingRepository
+import com.moodecho.app.data.repository.RepositoryResult
 import com.moodecho.app.util.AacWavConverter
 import com.moodecho.app.util.AudioRecorder
 import com.moodecho.app.util.Constants
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -89,6 +93,10 @@ class RecordingService : Service() {
 
         private val _analysisStatus = MutableStateFlow("")
         val analysisStatus: StateFlow<String> = _analysisStatus.asStateFlow()
+
+        // Processing result for UI observation (null = pending, -1 = failure, >=0 = sessionId)
+        private val _processingResult = MutableStateFlow<Long?>(null)
+        val processingResult: StateFlow<Long?> = _processingResult.asStateFlow()
 
         /**
          * Transcribe an audio file using AssemblyAI with speaker diarization.
@@ -179,6 +187,8 @@ class RecordingService : Service() {
                 // Step 3: Poll for transcript completion with timeout
                 val result = withTimeoutOrNull(Constants.ASSEMBLYAI_TIMEOUT_MS) {
                     var response: TranscriptResponse? = null
+                    var pollDelay = Constants.ASSEMBLYAI_POLL_INTERVAL_MS
+                    var consecutiveFailures = 0
                     while (true) {
                         val pollResponse = assemblyApi.getTranscript(
                             authorization = authHeader,
@@ -186,6 +196,8 @@ class RecordingService : Service() {
                         )
 
                         if (pollResponse.isSuccessful) {
+                            consecutiveFailures = 0
+                            pollDelay = Constants.ASSEMBLYAI_POLL_INTERVAL_MS
                             response = pollResponse.body()
                             when (response?.status) {
                                 "completed" -> break
@@ -195,8 +207,14 @@ class RecordingService : Service() {
                                         "Transcribing... (${response?.status ?: "processing"})"
                                 }
                             }
+                        } else {
+                            consecutiveFailures++
+                            pollDelay = (Constants.ASSEMBLYAI_POLL_INTERVAL_MS * (1L shl consecutiveFailures.coerceAtMost(5)))
+                                .coerceAtMost(30_000L)
+                            _transcriptionStatus.value =
+                                "Transcribing... (retry ${consecutiveFailures})"
                         }
-                        kotlinx.coroutines.delay(Constants.ASSEMBLYAI_POLL_INTERVAL_MS)
+                        kotlinx.coroutines.delay(pollDelay)
                     }
                     response
                 }
@@ -219,7 +237,8 @@ class RecordingService : Service() {
                     sessionDao = db.recordingSessionDao(),
                     transcriptDao = db.transcriptEntryDao(),
                     emotionDao = db.emotionDataPointDao(),
-                    reportDao = db.dailyReportDao()
+                    reportDao = db.dailyReportDao(),
+                    reportSessionDao = db.dailyReportSessionDao()
                 )
 
                 if (result.utterances != null && result.utterances.isNotEmpty()) {
@@ -307,79 +326,91 @@ class RecordingService : Service() {
                         aacFile.parentFile,
                         aacFile.nameWithoutExtension + ".wav"
                     )
-                    if (!AacWavConverter.convert(aacFile, wavFile)) {
-                        return@withContext false
-                    }
-
-                    _analysisStatus.value = "Analyzing emotions..."
-
-                    // Step 2: Extract audio features from the WAV file
-                    val featureExtractor = AudioFeatureExtractor()
-                    val featureVectors = featureExtractor.extractFeatures(wavFile)
-
-                    // Step 3: Analyze features to detect emotions
-                    val emotionAnalyzer = EmotionAnalyzer()
-                    val emotionResults = emotionAnalyzer.analyze(featureVectors)
-
-                    // Step 4: Save audio emotion data points to the database
-                    val app = context.applicationContext as MindEchoApp
-                    val db = app.database
-                    val repository = RecordingRepository(
-                        sessionDao = db.recordingSessionDao(),
-                        transcriptDao = db.transcriptEntryDao(),
-                        emotionDao = db.emotionDataPointDao(),
-                        reportDao = db.dailyReportDao()
-                    )
-
-                    if (emotionResults.isNotEmpty()) {
-                        val emotionDataPoints = emotionResults.map { result ->
-                            EmotionDataPoint(
-                                sessionId = sessionId,
-                                timestamp = result.timestamp,
-                                emotionType = result.emotionType,
-                                confidence = result.confidence,
-                                arousal = result.arousal,
-                                valence = result.valence
-                            )
+                    try {
+                        if (!AacWavConverter.convert(aacFile, wavFile)) {
+                            return@withContext false
                         }
-                        repository.saveEmotionDataPoints(emotionDataPoints)
-                    }
 
-                    // Step 5: Text sentiment analysis on transcripts (cross-modal fusion)
-                    _analysisStatus.value = "Analyzing language patterns..."
-                    val transcripts = repository.getTranscriptsForSessionSync(sessionId)
-                    if (transcripts.isNotEmpty()) {
-                        val combinedText = transcripts.joinToString(" ") { it.text }
-                        val textAnalyzer = TextSentimentAnalyzer()
-                        val textResult = textAnalyzer.analyze(combinedText)
+                        _analysisStatus.value = "Analyzing emotions..."
 
-                        // Save text-based sentiment as an additional emotion data point
-                        // (timestamp = -1 to distinguish from audio-based points)
-                        val textEmotionPoint = EmotionDataPoint(
-                            sessionId = sessionId,
-                            timestamp = -1L,  // -1 = text-based sentiment
-                            emotionType = textResult.primaryEmotion,
-                            confidence = textResult.confidence,
-                            arousal = textResult.arousal,
-                            valence = textResult.valence
+                        // Step 2: Extract audio features from the WAV file
+                        val featureExtractor = AudioFeatureExtractor()
+                        val featureVectors = featureExtractor.extractFeatures(wavFile)
+
+                        // Step 3: Analyze features to detect emotions
+                        val emotionAnalyzer = EmotionAnalyzer()
+                        val emotionResults = emotionAnalyzer.analyze(featureVectors)
+
+                        // Step 4: Save audio emotion data points to the database
+                        val app = context.applicationContext as MindEchoApp
+                        val db = app.database
+                        val repository = RecordingRepository(
+                            sessionDao = db.recordingSessionDao(),
+                            transcriptDao = db.transcriptEntryDao(),
+                            emotionDao = db.emotionDataPointDao(),
+                            reportDao = db.dailyReportDao(),
+                            reportSessionDao = db.dailyReportSessionDao()
                         )
-                        repository.saveEmotionDataPoint(textEmotionPoint)
 
-                        // Step 6: Merge audio + text into a final session-level fused result
-                        _analysisStatus.value = "Fusing audio & text analysis..."
-                        val fusedResult = textAnalyzer.mergeWithAudio(textResult, emotionResults)
-                        val fusedEmotionPoint = EmotionDataPoint(
-                            sessionId = sessionId,
-                            timestamp = -2L,  // -2 = fused audio+text sentiment
-                            emotionType = fusedResult.emotionType,
-                            confidence = fusedResult.confidence,
-                            arousal = fusedResult.arousal,
-                            valence = fusedResult.valence
-                        )
-                        repository.saveEmotionDataPoint(fusedEmotionPoint)
+                        if (emotionResults.isNotEmpty()) {
+                            val emotionDataPoints = emotionResults.map { result ->
+                                EmotionDataPoint(
+                                    sessionId = sessionId,
+                                    timestamp = result.timestamp,
+                                    emotionType = result.emotionType,
+                                    confidence = result.confidence,
+                                    arousal = result.arousal,
+                                    valence = result.valence
+                                )
+                            }
+                            repository.saveEmotionDataPoints(emotionDataPoints)
+                        }
+
+                        // Step 5: Text sentiment analysis on transcripts (cross-modal fusion)
+                        _analysisStatus.value = "Analyzing language patterns..."
+                        val transcriptsResult = repository.getTranscriptsForSessionSync(sessionId)
+                        val transcripts = when (transcriptsResult) {
+                            is RepositoryResult.Success -> transcriptsResult.data
+                            is RepositoryResult.Error -> emptyList()
+                        }
+                        if (transcripts.isNotEmpty()) {
+                            val combinedText = transcripts.joinToString(" ") { it.text }
+                            val textAnalyzer = TextSentimentAnalyzer()
+                            val textResult = textAnalyzer.analyze(combinedText)
+
+                            // Save text-based sentiment as an additional emotion data point
+                            // (timestamp = -1 to distinguish from audio-based points)
+                            val textEmotionPoint = EmotionDataPoint(
+                                sessionId = sessionId,
+                                timestamp = -1L,  // -1 = text-based sentiment
+                                emotionType = textResult.primaryEmotion,
+                                confidence = textResult.confidence,
+                                arousal = textResult.arousal,
+                                valence = textResult.valence
+                            )
+                            repository.saveEmotionDataPoint(textEmotionPoint)
+
+                            // Step 6: Merge audio + text into a final session-level fused result
+                            _analysisStatus.value = "Fusing audio & text analysis..."
+                            val fusedResult = textAnalyzer.mergeWithAudio(textResult, emotionResults)
+                            val fusedEmotionPoint = EmotionDataPoint(
+                                sessionId = sessionId,
+                                timestamp = -2L,  // -2 = fused audio+text sentiment
+                                emotionType = fusedResult.emotionType,
+                                confidence = fusedResult.confidence,
+                                arousal = fusedResult.arousal,
+                                valence = fusedResult.valence
+                            )
+                            repository.saveEmotionDataPoint(fusedEmotionPoint)
+                        }
+
+                        true
+                    } finally {
+                        // Clean up temporary WAV file
+                        if (wavFile.exists()) {
+                            wavFile.delete()
+                        }
                     }
-
-                    true
                 }
 
                 _analysisStatus.value = if (success) "Analysis complete" else ""
@@ -399,6 +430,8 @@ class RecordingService : Service() {
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val audioRecorder = AudioRecorder(this)
+    private var outputPath: String = ""
+    private var amplitudeJob: Job? = null
     private var startTime: Long = 0
 
     override fun onCreate() {
@@ -446,12 +479,15 @@ class RecordingService : Service() {
             startForeground(NOTIFICATION_ID, notification)
         }
 
+        this.outputPath = outputPath
+        _processingResult.value = null
         audioRecorder.start(outputPath)
         _isRecording.value = true
         startTime = System.currentTimeMillis()
 
-        // Update duration and amplitude periodically
-        serviceScope.launch {
+        // Cancel previous amplitude collection to avoid accumulation
+        amplitudeJob?.cancel()
+        amplitudeJob = serviceScope.launch {
             audioRecorder.amplitudeFlow.collect { amplitude ->
                 _currentAmplitude.value = amplitude
             }
@@ -470,16 +506,75 @@ class RecordingService : Service() {
     }
 
     /**
-     * Stop recording and stop the service.
-     * If AssemblyAI key is configured, starts transcription in the background.
+     * Stop recording, save session to DB, run analysis, then stop the service.
+     * The full pipeline (save + processRecording + transcribeAudio) runs in
+     * serviceScope so stopSelf() is only called after everything completes,
+     * preventing the analysis from being interrupted by service shutdown.
      */
     private fun stopRecording() {
-        audioRecorder.stop()
-        _isRecording.value = false
-        _recordingDuration.value = 0L
-        _currentAmplitude.value = 0f
-        stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelf()
+        // Cancel any ongoing amplitude collection
+        amplitudeJob?.cancel()
+        amplitudeJob = null
+
+        serviceScope.launch {
+            try {
+                audioRecorder.stop()
+                _isRecording.value = false
+                _recordingDuration.value = 0L
+                _currentAmplitude.value = 0f
+                stopForeground(STOP_FOREGROUND_REMOVE)
+
+                // Save recording session to DB
+                val sessionId = saveRecordingToDatabase()
+                if (sessionId != null) {
+                    // Run on-device emotion analysis
+                    processRecording(this@RecordingService, outputPath, sessionId)
+                    // Run AssemblyAI transcription if configured
+                    transcribeAudio(this@RecordingService, outputPath, sessionId)
+                    _processingResult.value = sessionId
+                } else {
+                    _processingResult.value = -1L
+                }
+            } catch (e: Exception) {
+                _processingResult.value = -1L
+            } finally {
+                stopSelf()
+            }
+        }
+    }
+
+    /**
+     * Save the completed recording to the Room database.
+     * Creates a RecordingSession entry and returns its ID.
+     */
+    private suspend fun saveRecordingToDatabase(): Long? {
+        return try {
+            val app = applicationContext as MindEchoApp
+            val db = app.database
+            val repository = RecordingRepository(
+                sessionDao = db.recordingSessionDao(),
+                transcriptDao = db.transcriptEntryDao(),
+                emotionDao = db.emotionDataPointDao(),
+                reportDao = db.dailyReportDao(),
+                reportSessionDao = db.dailyReportSessionDao()
+            )
+            val endTime = System.currentTimeMillis()
+            val session = RecordingSession(
+                title = "Recording ${java.text.SimpleDateFormat("MMM dd, HH:mm", java.util.Locale.getDefault()).format(startTime)}",
+                startTime = startTime,
+                endTime = endTime,
+                duration = endTime - startTime,
+                audioFilePath = outputPath,
+                status = SessionStatus.COMPLETED
+            )
+            val result = repository.createSession(session)
+            when (result) {
+                is RepositoryResult.Success -> result.data
+                is RepositoryResult.Error -> null
+            }
+        } catch (e: Exception) {
+            null
+        }
     }
 
     /**
