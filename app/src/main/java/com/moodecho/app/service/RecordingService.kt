@@ -15,6 +15,7 @@ import com.moodecho.app.MindEchoApp
 import com.moodecho.app.R
 import com.moodecho.app.analysis.AudioFeatureExtractor
 import com.moodecho.app.analysis.EmotionAnalyzer
+import com.moodecho.app.analysis.TextSentimentAnalyzer
 import com.moodecho.app.data.api.AssemblyAiApi
 import com.moodecho.app.data.api.TranscriptRequest
 import com.moodecho.app.data.api.TranscriptResponse
@@ -320,17 +321,17 @@ class RecordingService : Service() {
                     val emotionAnalyzer = EmotionAnalyzer()
                     val emotionResults = emotionAnalyzer.analyze(featureVectors)
 
-                    // Step 4: Save emotion data points to the database
-                    if (emotionResults.isNotEmpty()) {
-                        val app = context.applicationContext as MindEchoApp
-                        val db = app.database
-                        val repository = RecordingRepository(
-                            sessionDao = db.recordingSessionDao(),
-                            transcriptDao = db.transcriptEntryDao(),
-                            emotionDao = db.emotionDataPointDao(),
-                            reportDao = db.dailyReportDao()
-                        )
+                    // Step 4: Save audio emotion data points to the database
+                    val app = context.applicationContext as MindEchoApp
+                    val db = app.database
+                    val repository = RecordingRepository(
+                        sessionDao = db.recordingSessionDao(),
+                        transcriptDao = db.transcriptEntryDao(),
+                        emotionDao = db.emotionDataPointDao(),
+                        reportDao = db.dailyReportDao()
+                    )
 
+                    if (emotionResults.isNotEmpty()) {
                         val emotionDataPoints = emotionResults.map { result ->
                             EmotionDataPoint(
                                 sessionId = sessionId,
@@ -342,6 +343,40 @@ class RecordingService : Service() {
                             )
                         }
                         repository.saveEmotionDataPoints(emotionDataPoints)
+                    }
+
+                    // Step 5: Text sentiment analysis on transcripts (cross-modal fusion)
+                    _analysisStatus.value = "Analyzing language patterns..."
+                    val transcripts = repository.getTranscriptsForSessionSync(sessionId)
+                    if (transcripts.isNotEmpty()) {
+                        val combinedText = transcripts.joinToString(" ") { it.text }
+                        val textAnalyzer = TextSentimentAnalyzer()
+                        val textResult = textAnalyzer.analyze(combinedText)
+
+                        // Save text-based sentiment as an additional emotion data point
+                        // (timestamp = -1 to distinguish from audio-based points)
+                        val textEmotionPoint = EmotionDataPoint(
+                            sessionId = sessionId,
+                            timestamp = -1L,  // -1 = text-based sentiment
+                            emotionType = textResult.primaryEmotion,
+                            confidence = textResult.confidence,
+                            arousal = textResult.arousal,
+                            valence = textResult.valence
+                        )
+                        repository.saveEmotionDataPoint(textEmotionPoint)
+
+                        // Step 6: Merge audio + text into a final session-level fused result
+                        _analysisStatus.value = "Fusing audio & text analysis..."
+                        val fusedResult = textAnalyzer.mergeWithAudio(textResult, emotionResults)
+                        val fusedEmotionPoint = EmotionDataPoint(
+                            sessionId = sessionId,
+                            timestamp = -2L,  // -2 = fused audio+text sentiment
+                            emotionType = fusedResult.emotionType,
+                            confidence = fusedResult.confidence,
+                            arousal = fusedResult.arousal,
+                            valence = fusedResult.valence
+                        )
+                        repository.saveEmotionDataPoint(fusedEmotionPoint)
                     }
 
                     true

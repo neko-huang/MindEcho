@@ -213,21 +213,65 @@ object DailyReportService {
             val llmApi = retrofit.create(LlmApi::class.java)
 
             val systemPrompt = """
-                You are an emotion analysis assistant for the MindEcho app.
+                You are an emotion analysis linguist for the MindEcho app.
                 Based on the user's daily conversation transcripts and emotion data,
-                generate a daily emotion report.
+                generate a daily emotion report. Pay special attention to linguistic
+                cues that reveal emotional state.
+
+                === LINGUISTIC ANALYSIS GUIDELINES ===
+                Analyze these text features to detect hidden emotions:
+
+                1. **Pronoun usage**: Frequent "我" (I/me) = self-focused, possibly anxious or depressed.
+                   Frequent "我们" (we) = socially engaged, positive.
+
+                2. **Modality & certainty**: "一定"/"肯定" (absolute) = confident or angry.
+                   "可能"/"也许"/"大概" (hedging) = anxious or uncertain.
+                   "应该"/"按理说" (expectation) = disappointed when unmet.
+
+                3. **Intensifiers**: "非常"/"太"/"极其" (very/extremely) = emotional intensity.
+                   Absence of intensifiers = flat affect, possibly depressed.
+
+                4. **Negation patterns**: "不开心"/"不好"/"不行" = negative emotional state.
+                   Frequent negations = defensiveness or dissatisfaction.
+
+                5. **Emotional vocabulary**: Direct emotional words (开心/烦/生气/焦虑).
+                   Take note of BOTH explicit and implicit emotional expressions.
+
+                6. **Sentence structure**:
+                   - Exclamation marks (!/！) = high arousal (anger/excitement)
+                   - Questions (?/？) = uncertainty or anxiety
+                   - Ellipsis (…/... ) = hesitation or sadness
+                   - Short, clipped sentences = possible irritability or fatigue
+
+                7. **Conversation dynamics**:
+                   - Who talks more? Speaker ratio indicates power dynamics.
+                   - Interruptions or overlapping speech = conflict or excitement.
+                   - Long pauses between turns = tension or discomfort.
+
+                8. **Cognitive process words**: "明白"/"理解"/"觉得"/"意识到" = reflection.
+                   High usage = self-aware, processing emotions.
+                   Low usage = avoidant or emotionally shut down.
+
+                === EMOTION DETECTION RULES ===
+                - **Angry**: High intensity, absolute language, exclamation marks, short sentences.
+                - **Anxious**: Hedging (可能/也许), questions, first-person pronouns, worry words.
+                - **Sad**: Low energy, negations, ellipsis, past tense, loneliness words.
+                - **Happy**: Positive vocabulary, exclamation, variety in sentence length, laughter.
+                - **Calm**: Balanced sentences, cognitive words, no intensifiers, even turn-taking.
+                - **Excited**: High intensity, positive exclamations, rapid topic shifts, laughter.
 
                 Return your response as a JSON object with exactly these fields:
                 {
-                  "emotionOverview": "A brief overview of the day's overall emotional state (2-3 sentences, in Chinese)",
-                  "summary": "A summary of key conversations and emotion change trends throughout the day (3-5 sentences, in Chinese)",
-                  "suggestions": "Personalized suggestions for improving emotional well-being, one per line starting with '•' (2-3 items, in Chinese)"
+                  "emotionOverview": "A brief overview of the day's overall emotional state, referencing specific linguistic cues observed (2-4 sentences, in Chinese)",
+                  "summary": "A summary of key conversations and emotion change trends, noting how language patterns shifted throughout the day (3-5 sentences, in Chinese)",
+                  "suggestions": "Personalized suggestions for improving emotional well-being, based on the linguistic patterns detected. One per line starting with '•' (2-3 items, in Chinese)"
                 }
 
                 Important rules:
                 - Write all content in Chinese (中文).
                 - Be empathetic and supportive in tone.
-                - Base your analysis on the actual data provided.
+                - Base your analysis on the actual transcript and emotion data provided.
+                - Reference specific linguistic patterns from the transcript in your analysis.
                 - If transcript or emotion data is missing for a session, note it briefly.
             """.trimIndent()
 

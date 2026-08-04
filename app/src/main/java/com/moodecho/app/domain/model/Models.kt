@@ -45,6 +45,9 @@ data class SessionReport(
 /**
  * Audio feature vector produced by the AudioFeatureExtractor.
  * Used as input to the EmotionAnalyzer.
+ *
+ * V1 features: energy, ZCR, pause ratio (baseline)
+ * V2 features: MFCC, F0, spectral centroid (added 2026-08-04)
  */
 data class FeatureVector(
     val timestamp: Long,            // window start time (offset from session start)
@@ -53,5 +56,12 @@ data class FeatureVector(
     val averageZeroCrossingRate: Float,  // mean ZCR (correlates with speech rate)
     val zeroCrossingRateVariance: Float, // ZCR variance (rhythm stability)
     val pauseRatio: Float,          // fraction of frames below energy threshold (silence)
-    val energyChangeRate: Float     // rate of energy transitions (sudden changes indicator)
+    val energyChangeRate: Float,    // rate of energy transitions (sudden changes indicator)
+    // === V2 Spectral Features ===
+    val mfcc1Mean: Float = 0f,      // 1st MFCC coefficient mean (spectral tilt: bright ↔ dark)
+    val mfcc2Mean: Float = 0f,      // 2nd MFCC coefficient mean (formant structure)
+    val fundamentalFrequency: Float = 0f,  // Average F0 in Hz (pitch: high=anger/excited, low=sad)
+    val f0StdDev: Float = 0f,       // F0 variability (high=excited/anxious, low=calm/sad)
+    val spectralCentroid: Float = 0f,     // Spectral centroid in Hz (brightness)
+    val spectralRolloff: Float = 0f       // 85% rolloff frequency in Hz
 )
