@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import java.io.File
 
 /**
@@ -85,29 +86,46 @@ class AudioRecorder(private val context: Context? = null) {
      * We must WAIT for it to actually finish via `join()` before releasing the
      * MediaRecorder. Otherwise, both threads access the native MediaRecorder
      * simultaneously, causing a native crash (IllegalStateException / SIGSEGV).
+     *
+     * `join()` has a 500ms timeout to prevent blocking the main thread indefinitely
+     * if the native `maxAmplitude` call hangs on some devices.
      */
     fun stop() {
         // 1. Cancel the amplitude polling coroutine
         amplitudeJob?.cancel()
         // 2. WAIT for it to actually finish before touching the recorder
-        runBlocking {
-            amplitudeJob?.join()
+        //    Use a timeout to avoid ANR if the native call hangs
+        try {
+            runBlocking {
+                withTimeout(500) {
+                    amplitudeJob?.join()
+                }
+            }
+        } catch (e: Exception) {
+            // Timeout or cancellation — proceed anyway
         }
         amplitudeJob = null
 
-        try {
-            recorder?.apply {
-                stop()
-                release()
+        // Stop and release the recorder in SEPARATE try-catch blocks.
+        // If stop() throws, release() must still be called to avoid leaking
+        // native MediaRecorder resources. Do NOT use `apply { stop(); release() }`
+        // because a thrown exception from stop() would skip release().
+        val r = recorder
+        recorder = null
+        if (r != null) {
+            try {
+                r.stop()
+            } catch (e: Exception) {
+                // May throw if recorder is already stopped or in invalid state
             }
-        } catch (e: Exception) {
-            // MediaRecorder may throw if stop() called too soon after start()
-            // or if the recorder is in an invalid state. Safe to ignore.
-        } finally {
-            recorder = null
-            _isRecording = false
-            _amplitudeFlow.value = 0f
+            try {
+                r.release()
+            } catch (e: Exception) {
+                // Ignore release errors
+            }
         }
+        _isRecording = false
+        _amplitudeFlow.value = 0f
     }
 
     /**
@@ -143,17 +161,26 @@ class AudioRecorder(private val context: Context? = null) {
     fun release() {
         // Same as stop(): cancel + wait for completion before releasing
         amplitudeJob?.cancel()
-        runBlocking {
-            amplitudeJob?.join()
+        try {
+            runBlocking {
+                withTimeout(500) {
+                    amplitudeJob?.join()
+                }
+            }
+        } catch (e: Exception) {
+            // Timeout or cancellation — proceed anyway
         }
         amplitudeJob = null
 
-        try {
-            recorder?.release()
-        } catch (e: Exception) {
-            // Ignore
-        }
+        val r = recorder
         recorder = null
+        if (r != null) {
+            try {
+                r.release()
+            } catch (e: Exception) {
+                // Ignore
+            }
+        }
         _isRecording = false
         _amplitudeFlow.value = 0f
     }

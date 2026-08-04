@@ -89,6 +89,8 @@ fun RecordingScreen(
     var emotionConfidence by remember { mutableStateOf(0.5f) }
     var isStopping by remember { mutableStateOf(false) }
     var recordingStarted by remember { mutableStateOf(false) }
+    // Track amplitude history for real-time emotion estimation
+    var amplitudeHistory by remember { mutableStateOf(listOf<Float>()) }
 
     // Track the output path so we can save to DB on stop
     var outputPath by remember { mutableStateOf("") }
@@ -106,6 +108,52 @@ fun RecordingScreen(
         }
         ContextCompat.startForegroundService(context, intent)
         recordingStarted = true
+    }
+
+    // Real-time emotion estimation based on amplitude data during recording.
+    // Uses a running average of the last ~20 samples (~1 second at 50ms intervals)
+    // to estimate arousal level, then maps it to a basic emotion.
+    // Low amplitude → CALM, Medium → NEUTRAL, High → HAPPY/EXCITED, Very high → EXCITED
+    LaunchedEffect(amplitude) {
+        if (!isRecording || isPaused || isStopping || isTranscribing || isAnalyzing) return@LaunchedEffect
+
+        // Add current amplitude to history, keep last 20 samples
+        val newHistory = (amplitudeHistory + amplitude).takeLast(20)
+        amplitudeHistory = newHistory
+
+        if (newHistory.size < 5) return@LaunchedEffect // Need at least 5 samples
+
+        val avgAmplitude = newHistory.average().toFloat()
+        val maxAmplitude = newHistory.maxOrNull() ?: 0f
+        val variance = if (newHistory.size > 1) {
+            val mean = newHistory.average()
+            newHistory.map { (it - mean) * (it - mean) }.average().toFloat()
+        } else 0f
+
+        // Rule-based emotion estimation from amplitude features
+        val (emotion, confidence) = when {
+            // High amplitude + high variance = volatile/sudden changes → EXCITED or ANGRY
+            avgAmplitude > 0.35f && variance > 0.02f -> {
+                EmotionType.EXCITED to (avgAmplitude.coerceIn(0.3f, 0.8f))
+            }
+            // High amplitude + stable → HAPPY
+            avgAmplitude > 0.25f && variance < 0.015f -> {
+                EmotionType.HAPPY to (avgAmplitude.coerceIn(0.4f, 0.75f))
+            }
+            // Medium amplitude → NEUTRAL
+            avgAmplitude in 0.08f..0.25f -> {
+                EmotionType.NEUTRAL to 0.5f
+            }
+            // Low amplitude → CALM
+            avgAmplitude in 0.02f..0.08f -> {
+                EmotionType.CALM to ((0.08f - avgAmplitude) / 0.06f).coerceIn(0.3f, 0.7f)
+            }
+            // Very low amplitude (near silence) → keep current emotion
+            else -> currentEmotion to (emotionConfidence * 0.9f) // Decay confidence
+        }
+
+        currentEmotion = emotion
+        emotionConfidence = confidence.coerceIn(0.2f, 0.9f)
     }
 
     // Format duration as MM:SS
