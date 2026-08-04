@@ -4,14 +4,14 @@ package com.moodecho.app.domain.model
  * Supported emotion types detected from voice analysis.
  * Each type maps to specific audio feature patterns.
  */
-enum class EmotionType(val displayName: String, val emoji: String) {
-    HAPPY("Happy", "😊"),
-    SAD("Sad", "😢"),
-    ANGRY("Angry", "😠"),
-    ANXIOUS("Anxious", "😰"),
-    CALM("Calm", "😌"),
-    EXCITED("Excited", "🤩"),
-    NEUTRAL("Neutral", "😐")
+enum class EmotionType(val displayName: String, val emoji: String, val storageKey: String) {
+    HAPPY("Happy", "😊", "happy"),
+    SAD("Sad", "😢", "sad"),
+    ANGRY("Angry", "😠", "angry"),
+    ANXIOUS("Anxious", "😰", "anxious"),
+    CALM("Calm", "😌", "calm"),
+    EXCITED("Excited", "🤩", "excited"),
+    NEUTRAL("Neutral", "😐", "neutral")
 }
 
 /**
