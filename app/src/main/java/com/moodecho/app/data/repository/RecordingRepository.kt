@@ -163,9 +163,10 @@ class RecordingRepository(
 
     /** Get the dominant emotion for a session */
     suspend fun getDominantEmotion(sessionId: Long): EmotionType? {
+        val emotionName = emotionDao.getDominantEmotionForSession(sessionId) ?: return null
         return try {
-            emotionDao.getDominantEmotionForSession(sessionId)
-        } catch (e: Exception) {
+            EmotionType.valueOf(emotionName)
+        } catch (e: IllegalArgumentException) {
             null
         }
     }

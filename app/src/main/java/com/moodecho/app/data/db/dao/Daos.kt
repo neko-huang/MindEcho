@@ -9,7 +9,6 @@ import com.moodecho.app.data.db.entity.DailyReport
 import com.moodecho.app.data.db.entity.EmotionDataPoint
 import com.moodecho.app.data.db.entity.RecordingSession
 import com.moodecho.app.data.db.entity.TranscriptEntry
-import com.moodecho.app.domain.model.EmotionType
 import kotlinx.coroutines.flow.Flow
 
 /**
@@ -84,7 +83,7 @@ interface EmotionDataPointDao {
     suspend fun getEmotionsForSessionSync(sessionId: Long): List<EmotionDataPoint>
 
     @Query("SELECT emotionType FROM emotion_data_points WHERE sessionId = :sessionId GROUP BY emotionType ORDER BY COUNT(*) DESC LIMIT 1")
-    suspend fun getDominantEmotionForSession(sessionId: Long): EmotionType?
+    suspend fun getDominantEmotionForSession(sessionId: Long): String?
 
     @Query("DELETE FROM emotion_data_points WHERE sessionId = :sessionId")
     suspend fun deleteForSession(sessionId: Long)
