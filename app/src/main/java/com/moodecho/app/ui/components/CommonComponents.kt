@@ -217,7 +217,6 @@ private fun EmotionChipContent(
             }
         }
     }
-}
 
 /**
  * Session card component for displaying a recording session summary.
