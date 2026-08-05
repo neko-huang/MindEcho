@@ -21,8 +21,10 @@ android {
             useSupportLibrary = true
         }
 
-        // Room schema export for migration management (disabled - exportSchema=false)
-        // ksp { arg("room.schemaLocation", "$projectDir/schemas") }
+        // KSP configuration for Room
+        ksp {
+            arg("ksp.incremental", "false")
+        }
     }
 
     signingConfigs {
