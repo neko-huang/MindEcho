@@ -5,7 +5,6 @@ import androidx.room.Database
 import androidx.room.Migration
 import androidx.room.Room
 import androidx.room.RoomDatabase
-import androidx.room.TypeConverters
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.moodecho.app.data.db.dao.DailyReportDao
 import com.moodecho.app.data.db.dao.EmotionDataPointDao
@@ -15,8 +14,6 @@ import com.moodecho.app.data.db.entity.DailyReport
 import com.moodecho.app.data.db.entity.EmotionDataPoint
 import com.moodecho.app.data.db.entity.RecordingSession
 import com.moodecho.app.data.db.entity.TranscriptEntry
-
-import com.moodecho.app.domain.model.EmotionType
 
 /**
  * Room database for MindEcho.
@@ -32,7 +29,6 @@ import com.moodecho.app.domain.model.EmotionType
     version = 3,
     exportSchema = false
 )
-@TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
 
     abstract fun recordingSessionDao(): RecordingSessionDao
@@ -115,16 +111,4 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
     }
-}
-
-/**
- * Type converters for Room to handle custom types (enums, lists).
- */
-class Converters {
-    @androidx.room.TypeConverter
-    fun fromEmotionType(value: EmotionType): String = value.name
-
-    @androidx.room.TypeConverter
-    fun toEmotionType(value: String): EmotionType =
-        EmotionType.valueOf(value.uppercase())
 }
