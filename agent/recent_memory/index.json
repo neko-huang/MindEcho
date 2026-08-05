@@ -1,0 +1,92 @@
+[
+  {
+    "file_name": "project/mindecho_development_20260803.md",
+    "category": "project",
+    "summary": "MindEcho项目2026-08-03开发进展详情，含已完成功能、当前P0并行开发任务、后续P1待实现功能",
+    "tags": ["MindEcho", "Android开发", "情绪分析App", "比赛备赛", "OPC挑战赛"],
+    "importance": 4,
+    "created_at": "2026-08-03T11:35:00Z",
+    "updated_at": "2026-08-03T11:35:00Z",
+    "expires_at": "2026-08-06T11:35:00Z"
+  },
+  {
+    "file_name": "project/mindecho_daily_emotion_report_feature_20260803.md",
+    "category": "project",
+    "summary": "MindEcho每日情绪报告功能全量开发进展、CI构建失败根因、后续修复待办、2026-08-04新增编译错误修复记录",
+    "tags": ["MindEcho", "Android开发", "情绪报告", "DeepSeek集成", "Kotlin编译错误"],
+    "importance": 4,
+    "created_at": "2026-08-04T00:00:00Z",
+    "updated_at": "2026-08-04T12:40:00Z",
+    "expires_at": "2026-08-07T00:00:00Z"
+  },
+  {
+    "file_name": "project/mindecho_aac_to_wav_emotion_analysis_20260803.md",
+    "category": "project",
+    "summary": "MindEcho AAC转WAV自动情绪分析流水线全量实现，根因修复静默失败问题，当前已推送代码到主分支待修复伴生对象结构问题",
+    "tags": ["MindEcho", "Android开发", "情绪分析", "音频格式转换", "Kotlin音频处理"],
+    "importance": 4,
+    "created_at": "2026-08-04T12:50:00Z",
+    "updated_at": "2026-08-04T12:50:00Z",
+    "expires_at": "2026-08-07T12:50:00Z"
+  },
+  {
+    "file_name": "project/mindecho_full_project_creation_20260804.md",
+    "category": "project",
+    "summary": "MindEcho全项目从头构建完成，42个共4312行代码全部实现，成功创建GitHub仓库并推送至main分支",
+    "tags": ["MindEcho", "Android开发", "全项目构建", "GitHub推送", "情绪感知录音App"],
+    "importance": 4,
+    "created_at": "2026-08-04T00:02:47Z",
+    "updated_at": "2026-08-04T00:02:47Z",
+    "expires_at": "2026-08-10T00:02:47Z"
+  },
+  {
+    "file_name": "project/mindecho_switch_llm_to_deepseek_20260804.md",
+    "category": "project",
+    "summary": "MindEcho项目完成LLM API从OpenAI切换至DeepSeek，两次CI构建全部成功，Release APK已更新，包含全量改动点和预存在的编译修复记录",
+    "tags": ["MindEcho", "Android开发", "DeepSeek集成", "LLM API切换", "GitHub Actions构建"],
+    "importance": 4,
+    "created_at": "2026-08-04T00:30:00Z",
+    "updated_at": "2026-08-04T00:30:00Z",
+    "expires_at": "2026-08-10T00:30:00Z"
+  },
+  {
+    "file_name": "project/mindecho_session_detail_screen_implement_20260804.md",
+    "category": "project",
+    "summary": "MindEcho录音详情页SessionDetailScreen完整实现记录，新增2个ViewModel，实现5个页面功能区域，修复2项历史编译错误，待提交推送CI构建",
+    "tags": ["MindEcho", "Android开发", "SessionDetailScreen", "录音详情页", "Jetpack Compose"],
+    "importance": 4,
+    "created_at": "2026-08-04T12:33:56Z",
+    "updated_at": "2026-08-04T12:33:56Z",
+    "expires_at": "2026-08-10T12:33:56Z"
+  },
+  {
+    "file_name": "project/mindecho_recording_function_fix_20260804.md",
+    "category": "project",
+    "summary": "MindEcho录音功能完整修复，3个核心问题全部解决，两次CI构建全部成功，v0.1.0-mvp最新APK已发布",
+    "tags": ["MindEcho", "Android开发", "录音功能修复", "Jetpack Compose", "Android动态权限"],
+    "importance": 4,
+    "created_at": "2026-08-04T00:10:00Z",
+    "updated_at": "2026-08-04T00:10:00Z",
+    "expires_at": "2026-08-10T00:10:00Z"
+  },
+  {
+    "file_name": "project/mindecho_assemblyai_transcription_integration_20260804.md",
+    "category": "project",
+    "summary": "MindEcho完成AssemblyAI语音转文字+说话人分离全量代码实现，包含7个文件修改，待本地环境修复后编译验证+推送CI构建",
+    "tags": ["MindEcho", "Android开发", "AssemblyAI集成", "语音转文字", "说话人分离", "Retrofit"],
+    "importance": 4,
+    "created_at": "2026-08-04T12:45:00Z",
+    "updated_at": "2026-08-04T12:45:00Z",
+    "expires_at": "2026-08-10T12:45:00Z"
+  },
+  {
+    "file_name": "project/mindecho_full_ci_build_and_release_v0.1.0_20260804.md",
+    "category": "project",
+    "summary": "MindEcho全量GitHub Actions CI工作流配置完成，5轮迭代修复10个编译问题，自动构建+自动发布v0.1.0-mvp带debug APK的Release",
+    "tags": ["MindEcho", "Android开发", "GitHub Actions", "CI构建", "Release发布"],
+    "importance": 4,
+    "created_at": "2026-08-04T16:40:00Z",
+    "updated_at": "2026-08-04T16:40:00Z",
+    "expires_at": "2026-08-11T16:40:00Z"
+  }
+]
