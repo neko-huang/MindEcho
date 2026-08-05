@@ -5,11 +5,13 @@ import androidx.room.Database
 import androidx.room.Migration
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.TypeConverters
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.moodecho.app.data.db.dao.DailyReportDao
 import com.moodecho.app.data.db.dao.EmotionDataPointDao
 import com.moodecho.app.data.db.dao.RecordingSessionDao
 import com.moodecho.app.data.db.dao.TranscriptEntryDao
+import com.moodecho.app.data.db.Converters
 import com.moodecho.app.data.db.entity.DailyReport
 import com.moodecho.app.data.db.entity.EmotionDataPoint
 import com.moodecho.app.data.db.entity.RecordingSession
@@ -29,6 +31,7 @@ import com.moodecho.app.data.db.entity.TranscriptEntry
     version = 3,
     exportSchema = false
 )
+@TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
 
     abstract fun recordingSessionDao(): RecordingSessionDao
