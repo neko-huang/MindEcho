@@ -122,8 +122,7 @@ class SessionDetailViewModel(
             sessionDao = db.recordingSessionDao(),
             transcriptDao = db.transcriptEntryDao(),
             emotionDao = db.emotionDataPointDao(),
-            reportDao = db.dailyReportDao(),
-            reportSessionDao = db.dailyReportSessionDao()
+            reportDao = db.dailyReportDao()
         )
         preferenceManager = PreferenceManager(application)
         loadSessionData()

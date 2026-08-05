@@ -52,8 +52,7 @@ class DailyReportViewModel(
         sessionDao = db.recordingSessionDao(),
         transcriptDao = db.transcriptEntryDao(),
         emotionDao = db.emotionDataPointDao(),
-        reportDao = db.dailyReportDao(),
-        reportSessionDao = db.dailyReportSessionDao()
+        reportDao = db.dailyReportDao()
     )
     private val preferenceManager = PreferenceManager(application)
 

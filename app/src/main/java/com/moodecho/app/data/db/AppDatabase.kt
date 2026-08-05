@@ -22,7 +22,6 @@ import com.moodecho.app.domain.model.EmotionType
  * Room database for MindEcho.
  * Provides access to all DAOs and manages database lifecycle.
  */
-@TypeConverters(AppDatabase.Converters::class)
 @Database(
     entities = [
         RecordingSession::class,
@@ -33,13 +32,13 @@ import com.moodecho.app.domain.model.EmotionType
     version = 3,
     exportSchema = false
 )
+@TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
 
     abstract fun recordingSessionDao(): RecordingSessionDao
     abstract fun transcriptEntryDao(): TranscriptEntryDao
     abstract fun emotionDataPointDao(): EmotionDataPointDao
     abstract fun dailyReportDao(): DailyReportDao
-    // abstract fun dailyReportSessionDao(): DailyReportSessionDao
 
     companion object {
         @Volatile
@@ -116,16 +115,16 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
     }
+}
 
-    /**
-     * Type converters for Room to handle custom types (enums, lists).
-     */
-    class Converters {
-        @androidx.room.TypeConverter
-        fun fromEmotionType(value: EmotionType): String = value.name
+/**
+ * Type converters for Room to handle custom types (enums, lists).
+ */
+class Converters {
+    @androidx.room.TypeConverter
+    fun fromEmotionType(value: EmotionType): String = value.name
 
-        @androidx.room.TypeConverter
-        fun toEmotionType(value: String): EmotionType =
-            EmotionType.valueOf(value.uppercase())
-    }
+    @androidx.room.TypeConverter
+    fun toEmotionType(value: String): EmotionType =
+        EmotionType.valueOf(value.uppercase())
 }

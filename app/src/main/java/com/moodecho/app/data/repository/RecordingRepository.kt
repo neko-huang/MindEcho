@@ -1,12 +1,10 @@
 package com.moodecho.app.data.repository
 
 import com.moodecho.app.data.db.dao.DailyReportDao
-import com.moodecho.app.data.db.dao.DailyReportSessionDao
 import com.moodecho.app.data.db.dao.EmotionDataPointDao
 import com.moodecho.app.data.db.dao.RecordingSessionDao
 import com.moodecho.app.data.db.dao.TranscriptEntryDao
 import com.moodecho.app.data.db.entity.DailyReport
-import com.moodecho.app.data.db.entity.DailyReportSession
 import com.moodecho.app.data.db.entity.EmotionDataPoint
 import com.moodecho.app.data.db.entity.RecordingSession
 import com.moodecho.app.data.db.entity.SessionStatus
@@ -31,8 +29,7 @@ class RecordingRepository(
     private val sessionDao: RecordingSessionDao,
     private val transcriptDao: TranscriptEntryDao,
     private val emotionDao: EmotionDataPointDao,
-    private val reportDao: DailyReportDao,
-    private val reportSessionDao: DailyReportSessionDao
+    private val reportDao: DailyReportDao
 ) {
 
     // ---- Session operations ----
@@ -220,28 +217,6 @@ class RecordingRepository(
             RepositoryResult.Success(Unit)
         } catch (e: Exception) {
             RepositoryResult.Error("Failed to delete report", e)
-        }
-    }
-
-    // ---- DailyReportSession (junction table) operations ----
-
-    /** Save session IDs for a daily report */
-    suspend fun saveReportSessions(reportId: Long, sessionIds: List<Long>): RepositoryResult<Unit> {
-        return try {
-            val sessions = sessionIds.map { DailyReportSession(reportId = reportId, sessionId = it) }
-            reportSessionDao.insertAll(sessions)
-            RepositoryResult.Success(Unit)
-        } catch (e: Exception) {
-            RepositoryResult.Error("Failed to save report sessions", e)
-        }
-    }
-
-    /** Get session IDs for a report */
-    suspend fun getSessionIdsForReport(reportId: Long): RepositoryResult<List<Long>> {
-        return try {
-            RepositoryResult.Success(reportSessionDao.getSessionIdsForReport(reportId))
-        } catch (e: Exception) {
-            RepositoryResult.Error("Failed to get report session IDs", e)
         }
     }
 }

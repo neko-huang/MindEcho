@@ -95,24 +95,4 @@ data class DailyReport(
     val createdAt: Long                     // epoch millis
 )
 
-/**
- * Junction table linking daily reports to their recording sessions.
- * Replaces the comma-separated sessionIdList in DailyReport for proper normalization.
- */
-@Entity(
-    tableName = "daily_report_sessions",
-    foreignKeys = [
-        ForeignKey(
-            entity = DailyReport::class,
-            parentColumns = ["id"],
-            childColumns = ["reportId"],
-            onDelete = ForeignKey.CASCADE
-        )
-    ],
-    indices = [Index("reportId"), Index("sessionId")]
-)
-data class DailyReportSession(
-    @PrimaryKey(autoGenerate = true) val id: Long = 0,
-    val reportId: Long,
-    val sessionId: Long
-)
+

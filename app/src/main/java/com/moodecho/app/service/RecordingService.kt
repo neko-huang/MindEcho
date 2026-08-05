@@ -237,8 +237,7 @@ class RecordingService : Service() {
                     sessionDao = db.recordingSessionDao(),
                     transcriptDao = db.transcriptEntryDao(),
                     emotionDao = db.emotionDataPointDao(),
-                    reportDao = db.dailyReportDao(),
-                    reportSessionDao = db.dailyReportSessionDao()
+                    reportDao = db.dailyReportDao()
                 )
 
                 if (result.utterances != null && result.utterances.isNotEmpty()) {
@@ -348,8 +347,7 @@ class RecordingService : Service() {
                             sessionDao = db.recordingSessionDao(),
                             transcriptDao = db.transcriptEntryDao(),
                             emotionDao = db.emotionDataPointDao(),
-                            reportDao = db.dailyReportDao(),
-                            reportSessionDao = db.dailyReportSessionDao()
+                            reportDao = db.dailyReportDao()
                         )
 
                         if (emotionResults.isNotEmpty()) {
@@ -555,8 +553,7 @@ class RecordingService : Service() {
                 sessionDao = db.recordingSessionDao(),
                 transcriptDao = db.transcriptEntryDao(),
                 emotionDao = db.emotionDataPointDao(),
-                reportDao = db.dailyReportDao(),
-                reportSessionDao = db.dailyReportSessionDao()
+                reportDao = db.dailyReportDao()
             )
             val endTime = System.currentTimeMillis()
             val session = RecordingSession(

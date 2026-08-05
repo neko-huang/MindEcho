@@ -42,8 +42,7 @@ class HistoryViewModel(application: Application) : AndroidViewModel(application)
             sessionDao = db.recordingSessionDao(),
             transcriptDao = db.transcriptEntryDao(),
             emotionDao = db.emotionDataPointDao(),
-            reportDao = db.dailyReportDao(),
-            reportSessionDao = db.dailyReportSessionDao()
+            reportDao = db.dailyReportDao()
         )
         loadSessions()
     }
