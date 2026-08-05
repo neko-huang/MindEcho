@@ -8,6 +8,7 @@ import androidx.room.Query
 import com.moodecho.app.data.db.entity.DailyReport
 import com.moodecho.app.data.db.entity.EmotionDataPoint
 import com.moodecho.app.data.db.entity.RecordingSession
+import com.moodecho.app.data.db.entity.SessionStatus
 import com.moodecho.app.data.db.entity.TranscriptEntry
 import kotlinx.coroutines.flow.Flow
 
@@ -33,7 +34,7 @@ interface RecordingSessionDao {
     suspend fun getSessionsByDate(dayStart: Long, nextDayStart: Long): List<RecordingSession>
 
     @Query("UPDATE recording_sessions SET status = :status, endTime = :endTime, duration = :duration WHERE id = :id")
-    suspend fun updateSessionStatus(id: Long, status: String, endTime: Long, duration: Long)
+    suspend fun updateSessionStatus(id: Long, status: SessionStatus, endTime: Long, duration: Long)
 
     @Delete
     suspend fun delete(session: RecordingSession)
@@ -113,5 +114,3 @@ interface DailyReportDao {
     @Query("DELETE FROM daily_reports WHERE id = :id")
     suspend fun deleteById(id: Long)
 }
-
-

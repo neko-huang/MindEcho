@@ -12,6 +12,7 @@ import com.moodecho.app.data.db.dao.TranscriptEntryDao
 import com.moodecho.app.data.db.entity.DailyReport
 import com.moodecho.app.data.db.entity.EmotionDataPoint
 import com.moodecho.app.data.db.entity.RecordingSession
+import com.moodecho.app.data.db.entity.SessionStatus
 import com.moodecho.app.data.db.entity.TranscriptEntry
 import com.moodecho.app.domain.model.EmotionType
 
@@ -72,4 +73,11 @@ class Converters {
     @androidx.room.TypeConverter
     fun toEmotionType(value: String): EmotionType =
         EmotionType.valueOf(value)
+
+    @androidx.room.TypeConverter
+    fun fromSessionStatus(value: SessionStatus): String = value.name
+
+    @androidx.room.TypeConverter
+    fun toSessionStatus(value: String): SessionStatus =
+        SessionStatus.valueOf(value)
 }

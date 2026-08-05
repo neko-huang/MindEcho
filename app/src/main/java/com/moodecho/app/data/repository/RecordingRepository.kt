@@ -74,7 +74,7 @@ class RecordingRepository(
     /** Update session status when recording completes */
     suspend fun completeSession(id: Long, endTime: Long, duration: Long): RepositoryResult<Unit> {
         return try {
-            sessionDao.updateSessionStatus(id, SessionStatus.COMPLETED.name, endTime, duration)
+            sessionDao.updateSessionStatus(id, SessionStatus.COMPLETED, endTime, duration)
             RepositoryResult.Success(Unit)
         } catch (e: Exception) {
             RepositoryResult.Error("Failed to complete session", e)

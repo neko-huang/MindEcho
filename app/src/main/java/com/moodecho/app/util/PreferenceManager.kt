@@ -35,18 +35,34 @@ import kotlinx.coroutines.flow.update
 class PreferenceManager(private val context: Context) {
 
     // ---- EncryptedSharedPreferences (secure storage) ----
+    // 【P0 修复】MasterKey/EncryptedSharedPreferences 初始化可能抛出
+    // GeneralSecurityException / IOException（如 Android Keystore 不可用）。
+    // 用 try-catch 包装，失败时回退到明文 SharedPreferences，避免直接崩溃。
 
-    private val masterKey = MasterKey.Builder(context.applicationContext)
-        .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-        .build()
+    private val masterKey: MasterKey?
+    private val prefs: SharedPreferences
 
-    private val prefs: SharedPreferences = EncryptedSharedPreferences.create(
-        context.applicationContext,
-        PREFS_NAME,
-        masterKey,
-        EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-    )
+    init {
+        val (mk, sp) = try {
+            val key = MasterKey.Builder(context.applicationContext)
+                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                .build()
+            val esp = EncryptedSharedPreferences.create(
+                context.applicationContext,
+                PREFS_NAME,
+                key,
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+            )
+            Pair(key as MasterKey?, esp as SharedPreferences)
+        } catch (e: Exception) {
+            // 无法初始化加密存储，回退到明文 SharedPreferences
+            val fallback = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            Pair(null, fallback)
+        }
+        masterKey = mk
+        prefs = sp
+    }
 
     // ---- In-memory reactive state (always up-to-date) ----
 

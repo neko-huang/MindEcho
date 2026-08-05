@@ -505,9 +505,12 @@ class RecordingService : Service() {
 
     /**
      * Stop recording, save session to DB, run analysis, then stop the service.
-     * The full pipeline (save + processRecording + transcribeAudio) runs in
-     * serviceScope so stopSelf() is only called after everything completes,
-     * preventing the analysis from being interrupted by service shutdown.
+     *
+     * 【P0 修复】修复"结束录音闪退"的三个根因：
+     * 1. MediaRecorder 跨线程调用：stop() 通过 withContext(Dispatchers.Main) 切回主线程
+     * 2. stopForeground 过早：延迟到所有分析完成后再移除前台状态，防止服务被系统杀死
+     * 3. stopSelf 递归销毁：通过 withContext(Dispatchers.Main) 在主线程调用，
+     *    避免 finally 块中的 stopSelf() 触发 onDestroy() → serviceScope.cancel() 中断自身协程
      */
     private fun stopRecording() {
         // Cancel any ongoing amplitude collection
@@ -516,11 +519,17 @@ class RecordingService : Service() {
 
         serviceScope.launch {
             try {
-                audioRecorder.stop()
+                // ★ P0 修复：MediaRecorder 要求所有方法从同一线程调用
+                // start() 在主线程，stop() 也必须切回主线程
+                withContext(Dispatchers.Main) {
+                    audioRecorder.stop()
+                }
                 _isRecording.value = false
                 _recordingDuration.value = 0L
                 _currentAmplitude.value = 0f
-                stopForeground(STOP_FOREGROUND_REMOVE)
+
+                // ★ P0 修复：不立即移除前台状态，防止系统在分析过程中杀死服务
+                // 分析完成后在 finally 中统一移除
 
                 // Save recording session to DB
                 val sessionId = saveRecordingToDatabase()
@@ -536,7 +545,17 @@ class RecordingService : Service() {
             } catch (e: Exception) {
                 _processingResult.value = -1L
             } finally {
-                stopSelf()
+                // ★ P0 修复：重置所有处理状态，避免状态泄漏
+                _isTranscribing.value = false
+                _isAnalyzing.value = false
+                _transcriptionStatus.value = ""
+                _analysisStatus.value = ""
+                // ★ P0 修复：切到主线程调 stopForeground + stopSelf
+                // 避免 stopSelf() → onDestroy() → serviceScope.cancel() 中断自身协程
+                withContext(Dispatchers.Main) {
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf()
+                }
             }
         }
     }

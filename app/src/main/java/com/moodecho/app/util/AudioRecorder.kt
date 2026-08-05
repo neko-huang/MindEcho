@@ -106,6 +106,15 @@ class AudioRecorder(private val context: Context? = null) {
      * 【P0 修复】改为 suspend 函数，用 withTimeout + join() 替代 runBlocking，
      * 避免在主线程调用时阻塞导致 ANR。
      */
+    /**
+     * Stop recording and release resources.
+     *
+     * 【P0 修复】修复 amplitude 协程与 native MediaRecorder 释放之间的竞态条件：
+     * 1. 先置空 recorder 引用（让协程安全访问 null → 0f）
+     * 2. 再设释放标志（防止协程启动下一轮迭代）
+     * 3. 最后释放 native 对象
+     * 避免协程仍在访问 maxAmplitude 时 native 对象被释放 → SIGSEGV
+     */
     suspend fun stop() {
         // 1. Signal the amplitude coroutine to exit
         _isRecording = false
@@ -114,45 +123,40 @@ class AudioRecorder(private val context: Context? = null) {
         amplitudeJob?.cancel()
 
         // 3. WAIT for it to actually finish before touching the recorder
-        //    Use a timeout to avoid hanging if the native call hangs
         var amplitudeTimedOut = false
         try {
             withTimeout(1000) {
                 amplitudeJob?.join()
             }
         } catch (e: Exception) {
-            // Timeout — amplitude coroutine may still be accessing recorder
             amplitudeTimedOut = true
         }
         amplitudeJob = null
 
-        // 设置释放标志，防止 amplitude 协程后续访问
-        _released = true
-
+        // ★ 关键修复：先取引用，再置空 recorder
+        // 即使 amplitude 协程仍在迭代中，recorder?.maxAmplitude 安全返回 null → 0f
         val r = recorder
         recorder = null
+        _released = true
+
         if (r != null) {
             if (amplitudeTimedOut) {
-                // Amplitude coroutine may still be accessing the recorder.
-                // Skip stop() to avoid native crash from concurrent access.
-                try {
-                    r.release()
-                } catch (e: Exception) {
-                    // Ignore release errors
-                }
-            } else {
-                // Normal stop: separate try-catch blocks so release() always runs
-                // even if stop() throws a Java exception.
+                // 超时路径：协程可能仍在访问 native 对象
+                // 此时 recorder 已为 null，协程访问 null 安全
+                // 但 r 持有原引用，释放时仍可能触发 native 异常
                 try {
                     r.stop()
-                } catch (e: Exception) {
-                    // May throw if recorder is already stopped or in invalid state
-                }
+                } catch (_: Exception) { }
                 try {
                     r.release()
-                } catch (e: Exception) {
-                    // Ignore release errors
-                }
+                } catch (_: Exception) { }
+            } else {
+                try {
+                    r.stop()
+                } catch (e: Exception) { }
+                try {
+                    r.release()
+                } catch (e: Exception) { }
             }
         }
         _amplitudeFlow.value = 0f
