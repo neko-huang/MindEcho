@@ -17,6 +17,7 @@ import com.moodecho.app.data.db.entity.DailyReportSession
 import com.moodecho.app.data.db.entity.EmotionDataPoint
 import com.moodecho.app.data.db.entity.RecordingSession
 import com.moodecho.app.data.db.entity.TranscriptEntry
+import com.moodecho.app.data.db.entity.SessionStatus
 import com.moodecho.app.domain.model.EmotionType
 
 /**
@@ -131,4 +132,10 @@ class Converters {
     fun toEmotionType(value: String): EmotionType =
         EmotionType.entries.firstOrNull { it.storageKey == value }
             ?: EmotionType.valueOf(value.uppercase()) // fallback for old data stored as enum name
+
+    @androidx.room.TypeConverter
+    fun fromSessionStatus(value: SessionStatus): String = value.name
+
+    @androidx.room.TypeConverter
+    fun toSessionStatus(value: String): SessionStatus = SessionStatus.valueOf(value)
 }

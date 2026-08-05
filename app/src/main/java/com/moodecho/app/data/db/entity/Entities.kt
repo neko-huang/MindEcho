@@ -7,6 +7,15 @@ import androidx.room.PrimaryKey
 import com.moodecho.app.domain.model.EmotionType
 
 /**
+ * Status of a recording session.
+ */
+enum class SessionStatus {
+    RECORDING,
+    PROCESSING,
+    COMPLETED
+}
+
+/**
  * Represents a single recording session.
  * Tracks the full lifecycle: recording → processing → completed.
  */
@@ -20,15 +29,6 @@ data class RecordingSession(
     val audioFilePath: String,    // path to saved audio file
     val status: SessionStatus = SessionStatus.RECORDING
 )
-
-/**
- * Status of a recording session.
- */
-enum class SessionStatus {
-    RECORDING,
-    PROCESSING,
-    COMPLETED
-}
 
 /**
  * A single transcript entry within a recording session.
