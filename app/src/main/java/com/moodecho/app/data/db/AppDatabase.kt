@@ -8,12 +8,10 @@ import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.moodecho.app.data.db.dao.DailyReportDao
-import com.moodecho.app.data.db.dao.DailyReportSessionDao
 import com.moodecho.app.data.db.dao.EmotionDataPointDao
 import com.moodecho.app.data.db.dao.RecordingSessionDao
 import com.moodecho.app.data.db.dao.TranscriptEntryDao
 import com.moodecho.app.data.db.entity.DailyReport
-import com.moodecho.app.data.db.entity.DailyReportSession
 import com.moodecho.app.data.db.entity.EmotionDataPoint
 import com.moodecho.app.data.db.entity.RecordingSession
 import com.moodecho.app.data.db.entity.TranscriptEntry
@@ -30,8 +28,7 @@ import com.moodecho.app.domain.model.EmotionType
         RecordingSession::class,
         TranscriptEntry::class,
         EmotionDataPoint::class,
-        DailyReport::class,
-        DailyReportSession::class
+        DailyReport::class
     ],
     version = 3,
     exportSchema = false
@@ -42,7 +39,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun transcriptEntryDao(): TranscriptEntryDao
     abstract fun emotionDataPointDao(): EmotionDataPointDao
     abstract fun dailyReportDao(): DailyReportDao
-    abstract fun dailyReportSessionDao(): DailyReportSessionDao
+    // abstract fun dailyReportSessionDao(): DailyReportSessionDao
 
     companion object {
         @Volatile
