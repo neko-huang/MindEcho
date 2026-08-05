@@ -126,10 +126,9 @@ abstract class AppDatabase : RoomDatabase() {
  */
 class Converters {
     @androidx.room.TypeConverter
-    fun fromEmotionType(value: EmotionType): String = value.storageKey
+    fun fromEmotionType(value: EmotionType): String = value.name
 
     @androidx.room.TypeConverter
     fun toEmotionType(value: String): EmotionType =
-        EmotionType.values().firstOrNull { it.storageKey == value }
-            ?: EmotionType.valueOf(value.uppercase()) // fallback for old data stored as enum name
+        EmotionType.valueOf(value.uppercase())
 }
