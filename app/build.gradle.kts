@@ -20,11 +20,6 @@ android {
         vectorDrawables {
             useSupportLibrary = true
         }
-
-        // KSP configuration for Room
-        ksp {
-            arg("ksp.incremental", "false")
-        }
     }
 
     signingConfigs {
