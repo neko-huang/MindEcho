@@ -384,7 +384,7 @@ class TextSentimentAnalyzer {
                             // Verify the negation is at a word boundary (start of `before` or preceded by a non-Chinese-char)
                             val globalPos = beforeStart + negIndex
                             val isWordStart = globalPos == 0 ||
-                                    !isChineseCharOrLetter(sentence[globalPos - 1])
+                                    !sentence[globalPos - 1].isChineseCharOrLetter()
                             if (isWordStart) {
                                 count++
                                 break

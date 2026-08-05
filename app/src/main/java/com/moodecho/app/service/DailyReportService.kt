@@ -161,10 +161,6 @@ object DailyReportService {
             is RepositoryResult.Error -> return ReportResult.Error(reportResult.message)
         }
 
-        // Save session IDs to the junction table
-        val sessionIds = sessions.map { it.id }
-        repository.saveReportSessions(reportId, sessionIds)
-
         return ReportResult.Success(report)
     }
 
